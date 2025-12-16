@@ -1,4 +1,4 @@
-package com.qualtech.qualtech_ai;
+package com.qualtech_ai;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
