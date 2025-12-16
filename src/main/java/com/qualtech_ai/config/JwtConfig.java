@@ -1,4 +1,4 @@
-package com.qualtech.qualtech_ai.config;
+package com.qualtech_ai.config;
 
 public class JwtConfig {
 
