@@ -1,5 +1,6 @@
-package com.qualtech.qualtech_ai.service;
+package com.qualtech_ai.service;
 
-public interface  EmailService {
+public interface EmailService {
 
+    void sendEmail(String to, String subject, String body);
 }

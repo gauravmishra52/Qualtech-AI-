@@ -1,5 +1,9 @@
 package com.qualtech_ai.config;
 
-public class FlyWayConfig {
+import org.springframework.context.annotation.Configuration;
 
+@Configuration
+public class FlyWayConfig {
+    
 }
+
