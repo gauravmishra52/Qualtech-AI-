@@ -9,6 +9,11 @@ import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
 import org.springframework.lang.NonNull;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.Resource;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.resource.PathResourceResolver;
+import java.io.IOException;
 
 @Configuration
 @EnableWebMvc
@@ -16,21 +21,35 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addViewControllers(@NonNull ViewControllerRegistry registry) {
-        // No view controllers needed for API-only backend
+        // Map all Angular routes to index.html for client-side routing
+        registry.addViewController("/**/{path:[^\.]*}")
+                .setViewName("forward:/");
     }
 
     @Override
     public void addResourceHandlers(@NonNull ResourceHandlerRegistry registry) {
-        // Standard static resources like Swagger UI webjars are handled automatically
-        // but we can leave this empty or remove it if not serving custom static assets
+        // Serve static resources
+        registry.addResourceHandler("/**")
+                .addResourceLocations("classpath:/static/")
+                .resourceChain(true)
+                .addResolver(new PathResourceResolver() {
+                    @Override
+                    protected Resource getResource(String resourcePath, Resource location) throws IOException {
+                        Resource requestedResource = location.createRelative(resourcePath);
+                        return requestedResource.exists() && requestedResource.isReadable() ? requestedResource
+                                : new ClassPathResource("/static/index.html");
+                    }
+                });
+
+        // WebJars configuration for Swagger
         registry.addResourceHandler("/webjars/**")
                 .addResourceLocations("classpath:/META-INF/resources/webjars/");
     }
 
     @Override
     public void addCorsMappings(@NonNull CorsRegistry registry) {
-        registry.addMapping("/**") // Allow all endpoints
-                .allowedOriginPatterns("*") // Your frontend URL
+        registry.addMapping("/**")
+                .allowedOriginPatterns("*")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
                 .allowedHeaders("*")
                 .exposedHeaders("Authorization", "Content-Type")
@@ -40,9 +59,9 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Bean
     public InternalResourceViewResolver defaultViewResolver() {
-        return new InternalResourceViewResolver();
+        InternalResourceViewResolver resolver = new InternalResourceViewResolver();
+        resolver.setPrefix("/static/");
+        resolver.setSuffix(".html");
+        return resolver;
     }
-
-    // Add other web-related configurations here
-    // For example, custom formatters, validators, interceptors, etc.
 }
