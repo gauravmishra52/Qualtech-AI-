@@ -36,6 +36,56 @@ frontend/
 logs/
 *.log
 
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Application Properties
+application-*.properties
+application-*.yml
+!application-example.yml
+
 # System Files
 .DS_Store
 Thumbs.db
+
+# Sensitive Data
+**/secrets/
+**/config/keystore.*
+**/config/*.jks
+**/config/*.p12
+**/config/*.pem
+**/config/*.key
+**/config/*.crt
+
+# Local development files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+.springBeans
+.sts4-cache
+
+# Build directories
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+dist/
+nbdist/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# Frontend build artifacts
+frontend/
+
+# Logs
+logs/
+*.log

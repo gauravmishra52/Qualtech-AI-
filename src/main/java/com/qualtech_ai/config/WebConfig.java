@@ -11,7 +11,6 @@ import org.springframework.web.servlet.view.InternalResourceViewResolver;
 import org.springframework.lang.NonNull;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
-import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.resource.PathResourceResolver;
 import java.io.IOException;
 
@@ -21,9 +20,9 @@ public class WebConfig implements WebMvcConfigurer {
 
     @Override
     public void addViewControllers(@NonNull ViewControllerRegistry registry) {
-        // Map all Angular routes to index.html for client-side routing
-        registry.addViewController("/**/{path:[^\.]*}")
-                .setViewName("forward:/");
+        // Handle client-side routing
+        registry.addViewController("/{path:^(?!api|static|assets|swagger-ui|v3|webjars).*}/**")
+               .setViewName("forward:/index.html");
     }
 
     @Override
@@ -34,14 +33,15 @@ public class WebConfig implements WebMvcConfigurer {
                 .resourceChain(true)
                 .addResolver(new PathResourceResolver() {
                     @Override
-                    protected Resource getResource(String resourcePath, Resource location) throws IOException {
+                    protected Resource getResource(@NonNull String resourcePath, @NonNull Resource location) throws IOException {
                         Resource requestedResource = location.createRelative(resourcePath);
-                        return requestedResource.exists() && requestedResource.isReadable() ? requestedResource
-                                : new ClassPathResource("/static/index.html");
+                        return requestedResource.exists() && requestedResource.isReadable() 
+                            ? requestedResource
+                            : new ClassPathResource("/static/index.html");
                     }
                 });
 
-        // WebJars configuration for Swagger
+        // Swagger UI
         registry.addResourceHandler("/webjars/**")
                 .addResourceLocations("classpath:/META-INF/resources/webjars/");
     }
@@ -49,11 +49,11 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(@NonNull CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOriginPatterns("*")
+                .allowedOrigins("http://localhost:8080", "http://10.255.3.148:8080")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
-                .allowedHeaders("*")
-                .exposedHeaders("Authorization", "Content-Type")
+                .allowedHeaders("Authorization", "Cache-Control", "Content-Type")
                 .allowCredentials(true)
+                .exposedHeaders("Authorization")
                 .maxAge(3600);
     }
 
