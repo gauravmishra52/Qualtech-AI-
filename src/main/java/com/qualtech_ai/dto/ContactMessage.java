@@ -1,4 +1,4 @@
-package com.qualtech_ai.model;
+package com.qualtech_ai.dto;
 
 public class ContactMessage {
     private String name;

@@ -123,11 +123,13 @@ public class AuthController {
         }
     }
 
-    @GetMapping("/verify")
-    public ResponseEntity<?> verifyEmail(@RequestParam String token) {
+    @PostMapping("/verify-otp")
+    public ResponseEntity<?> verifyEmail(@RequestBody Map<String, String> request) {
+        String email = request.get("email");
+        String otp = request.get("otp");
         try {
-            logger.info("Attempting to verify email with token: {}", token);
-            authService.verifyEmail(token);
+            logger.info("Attempting to verify email for: {}", email);
+            authService.verifyEmail(email, otp);
             logger.info("Email verified successfully");
             Map<String, String> response = new HashMap<>();
             response.put("message", "Email verified successfully. You can now log in.");

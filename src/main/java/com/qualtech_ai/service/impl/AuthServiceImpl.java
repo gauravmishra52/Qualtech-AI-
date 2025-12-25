@@ -26,7 +26,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
+
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -78,18 +78,17 @@ public class AuthServiceImpl implements AuthService {
         user.setRoles(Set.of(role));
         user.setEnabled(false);
 
-        String token = UUID.randomUUID().toString();
-        user.setVerificationToken(token);
+        String otp = String.format("%06d", new java.security.SecureRandom().nextInt(1000000));
+        user.setVerificationToken(otp);
         user.setVerificationTokenExpiry(
-                LocalDateTime.now().plus(Duration.ofMillis(tokenExpirationMs)));
+                LocalDateTime.now().plus(Duration.ofMinutes(15))); // OTP valid for 15 minutes
 
         userRepository.save(user);
 
-        String verificationLink = frontendUrl + "/verify-email?token=" + token;
         emailService.sendEmail(
                 user.getEmail(),
                 "Qualtech AI - Verify Your Email",
-                EmailUtil.verificationEmailBody(verificationLink));
+                EmailUtil.verificationEmailBody(user.getUsername(), otp));
     }
 
     // ================= LOGIN =================
@@ -131,21 +130,19 @@ public class AuthServiceImpl implements AuthService {
     // ================= VERIFY EMAIL =================
     @Override
     @Transactional
-    public void verifyEmail(String token) {
-        log.info("Starting email verification for token: {}", token);
+    public void verifyEmail(String email, String otp) {
+        log.info("Starting email verification for email: {}", email);
 
-        if (!StringUtils.hasText(token)) {
-            log.warn("Verification failed: Token is empty");
-            throw new CustomException("Verification token is required");
+        if (!StringUtils.hasText(email) || !StringUtils.hasText(otp)) {
+            throw new CustomException("Email and OTP are required");
         }
 
-        String cleanToken = token.trim();
+        User user = userRepository.findByEmail(email.trim().toLowerCase())
+                .orElseThrow(() -> new CustomException("User not found"));
 
-        User user = userRepository.findByVerificationToken(cleanToken)
-                .orElseThrow(() -> {
-                    log.warn("Verification failed: Token not found in database: {}", cleanToken);
-                    return new CustomException("Invalid verification token");
-                });
+        if (!otp.equals(user.getVerificationToken())) {
+            throw new CustomException("Invalid OTP");
+        }
 
         if (user.isEnabled()) {
             log.info("Email already verified for user: {}", user.getEmail());

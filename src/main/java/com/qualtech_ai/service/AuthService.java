@@ -21,5 +21,5 @@ public interface AuthService {
     String generateToken(String email);
 
     @Transactional
-    void verifyEmail(String token);
+    void verifyEmail(String email, String otp);
 }
