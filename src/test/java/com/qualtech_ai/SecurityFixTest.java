@@ -8,6 +8,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.anyOf;
+import static org.hamcrest.Matchers.is;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -18,16 +20,15 @@ public class SecurityFixTest {
 
     @Test
     public void testPublicEndpointDoesNotStackOverflow() throws Exception {
-        // This request should not trigger StackOverflowError
+
         mockMvc.perform(get("/"))
-                .andExpect(status().isOk()); // or isNotFound() depending on if index.html exists, but main point is no
-                                             // crash
+                .andExpect(status().isOk());
     }
 
     @Test
     public void testErrorEndpointDoesNotStackOverflow() throws Exception {
-        // This request should not trigger StackOverflowError
+
         mockMvc.perform(get("/error"))
-                .andExpect(status().isInternalServerError().or(status().isOk()).or(status().isNotFound()));
+                .andExpect(status().is(anyOf(is(500), is(200), is(404))));
     }
 }
