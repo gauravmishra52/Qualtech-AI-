@@ -120,7 +120,7 @@
                         <a class="nav-link active" href="/">Home</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="#features">Features</a>
+                        <a class="nav-link" href="/landing.html">Features</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="#contact">Contact</a>
@@ -143,8 +143,6 @@
                         <i class="bi bi-person-circle me-1"></i><span id="userName">User</span>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item" href="/video-analysis.html"><i
-                                    class="bi bi-file-earmark-play me-2"></i>Video Analysis</a></li>
                         <li><a class="dropdown-item" href="/dashboard.html"><i
                                     class="bi bi-speedometer2 me-2"></i>Dashboard</a></li>
                         <li><a class="dropdown-item" href="#"><i class="bi bi-gear me-2"></i>Settings</a></li>
@@ -289,173 +287,6 @@
             </div>
         </footer>
     </div>
-
-    <!-- Chat Bot Widget -->
-    <div class="chat-widget">
-        <button class="chat-toggle-btn shadow-lg" onclick="toggleChat()" aria-label="Open Chat">
-            <i class="bi bi-robot" style="font-size: 24px;"></i>
-        </button>
-        <div class="chat-window shadow-lg" id="chatWindow">
-            <div class="chat-header bg-primary text-white p-3 d-flex justify-content-between align-items-center">
-                <div class="d-flex align-items-center">
-                    <i class="bi bi-robot me-2"></i>
-                    <h5 class="mb-0">QualTech Bot</h5>
-                </div>
-                <button type="button" class="btn-close btn-close-white" onclick="toggleChat()"
-                    aria-label="Close"></button>
-            </div>
-            <div class="chat-body p-3" id="chatBody">
-                <div class="chat-message bot-message mb-3">
-                    <div class="message-content bg-light p-2 rounded">
-                        Hello! How can I assist you with QualTech AI services today?
-                    </div>
-                </div>
-            </div>
-            <div class="chat-footer p-3 border-top bg-white">
-                <div class="input-group">
-                    <input type="text" class="form-control" placeholder="Type a message..." id="chatInput">
-                    <button class="btn btn-primary" onclick="sendMessage()">
-                        <i class="bi bi-send"></i>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <style>
-        .chat-widget {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 10000;
-        }
-
-        .chat-toggle-btn {
-            width: 60px;
-            height: 60px;
-            border-radius: 50%;
-            background: #0d6efd;
-            color: white;
-            border: none;
-            cursor: pointer;
-            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .chat-toggle-btn:hover {
-            transform: scale(1.1);
-            background: #0b5ed7;
-        }
-
-        .chat-window {
-            position: absolute;
-            bottom: 80px;
-            right: 0;
-            width: 350px;
-            height: 450px;
-            background: white;
-            border-radius: 15px;
-            overflow: hidden;
-            display: none;
-            flex-direction: column;
-            border: 1px solid rgba(0, 0, 0, 0.1);
-        }
-
-        .chat-window.active {
-            display: flex;
-            animation: slideIn 0.3s ease-out;
-        }
-
-        .chat-body {
-            flex-grow: 1;
-            overflow-y: auto;
-            background: #f8f9fa;
-        }
-
-        .message-content {
-            display: inline-block;
-            max-width: 80%;
-            font-size: 0.95rem;
-        }
-
-        .bot-message .message-content {
-            background: #e9ecef;
-            color: #212529;
-            border-top-left-radius: 0 !important;
-        }
-
-        .user-message {
-            text-align: right;
-        }
-
-        .user-message .message-content {
-            background: #0d6efd;
-            color: white;
-            border-top-right-radius: 0 !important;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-    </style>
-
-    <script>
-        function toggleChat() {
-            const window = document.getElementById('chatWindow');
-            window.classList.toggle('active');
-            if (window.classList.contains('active')) {
-                document.getElementById('chatInput').focus();
-            }
-        }
-
-        function sendMessage() {
-            const input = document.getElementById('chatInput');
-            const body = document.getElementById('chatBody');
-            const text = input.value.trim();
-
-            if (!text) return;
-
-            // Add User Message
-            const userDiv = document.createElement('div');
-            userDiv.className = 'chat-message user-message mb-3';
-            userDiv.innerHTML = `<div class="message-content p-2 rounded">${escapeHtml(text)}</div>`;
-            body.appendChild(userDiv);
-
-            input.value = '';
-            body.scrollTop = body.scrollHeight;
-
-            // Simulate Bot Response
-            setTimeout(() => {
-                const botDiv = document.createElement('div');
-                botDiv.className = 'chat-message bot-message mb-3';
-                botDiv.innerHTML = `<div class="message-content bg-light p-2 rounded">
-                    I'm just a demo bot right now, but soon I'll be powered by real AI!
-                </div>`;
-                body.appendChild(botDiv);
-                body.scrollTop = body.scrollHeight;
-            }, 1000);
-        }
-
-        document.getElementById('chatInput').addEventListener('keypress', function (e) {
-            if (e.key === 'Enter') sendMessage();
-        });
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-    </script>
 
     <!-- Auth Modal -->
     <div class="modal fade auth-modal" id="authModal" tabindex="-1" aria-hidden="true">
@@ -721,13 +552,7 @@
                     document.body.classList.add('logged-in');
                     document.getElementById('userName').textContent = data.username || email.split('@')[0];
                     bootstrap.Modal.getInstance(document.getElementById('authModal')).hide();
-
-                    // Redirect to Analysis
-                    showAlert('Login successful! Redirecting...', 'success');
-                    setTimeout(() => {
-                        window.location.href = '/video-analysis.html';
-                    }, 1500);
-
+                    showAlert('Login successful! Welcome back.', 'success');
                 } else {
                     showAlert(data.error || data.message || 'Login failed', 'danger');
                 }
@@ -833,75 +658,24 @@
             }
         }
 
-        async function refreshToken() {
-            const refresh = localStorage.getItem('refreshToken');
-            if (!refresh) return false;
+        function logout() {
+            const refreshToken = localStorage.getItem('refreshToken');
 
-            try {
-                const response = await fetch(`${API_BASE}/refresh-token`, {
+            if (refreshToken) {
+                fetch(`${API_BASE}/logout`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ refreshToken: refresh })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    localStorage.setItem('authToken', data.accessToken);
-                    localStorage.setItem('refreshToken', data.refreshToken);
-                    return true;
-                }
-            } catch (error) {
-                console.error('Token refresh failed:', error);
-            }
-            return false;
-        }
-
-        async function authenticatedFetch(url, options = {}) {
-            let token = localStorage.getItem('authToken');
-
-            options.headers = {
-                ...options.headers,
-                'Authorization': 'Bearer ' + token
-            };
-
-            let response = await fetch(url, options);
-
-            if (response.status === 401) {
-                const refreshed = await refreshToken();
-                if (refreshed) {
-                    token = localStorage.getItem('authToken');
-                    options.headers['Authorization'] = 'Bearer ' + token;
-                    response = await fetch(url, options);
-                } else {
-                    localStorage.clear();
-                    window.location.href = '/?error=session_expired';
-                    throw new Error('Session expired');
-                }
-            }
-            return response;
-        }
-
-        async function logout() {
-            const refreshTokenStr = localStorage.getItem('refreshToken');
-
-            if (refreshTokenStr) {
-                try {
-                    await fetch(`${API_BASE}/logout`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ refreshToken: refreshTokenStr })
-                    });
-                } catch (e) {
-                    console.error('Logout failed', e);
-                }
+                    body: JSON.stringify({ refreshToken })
+                }).catch(() => { });
             }
 
-            localStorage.clear();
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('userName');
+            localStorage.removeItem('userEmail');
+            localStorage.removeItem('userId');
             document.body.classList.remove('logged-in');
             showAlert('You have been logged out', 'info');
-            setTimeout(() => {
-                window.location.href = '/';
-            }, 1000);
         }
 
         // Contact Form

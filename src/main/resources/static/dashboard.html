@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - QualTech AI</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/css/styles.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            overflow-x: hidden;
+        }
+
+        .dashboard-container {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 280px;
+            background: linear-gradient(180deg, #0d6efd 0%, #0a58ca 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            height: 100vh;
+            z-index: 1000;
+            transition: all 0.3s;
+        }
+
+        .sidebar-brand {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+        }
+
+        .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            padding: 12px 15px;
+            border-radius: 10px;
+            margin-bottom: 5px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+        }
+
+        .nav-link:hover,
+        .nav-link.active {
+            color: white;
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateX(5px);
+        }
+
+        .nav-link i {
+            margin-right: 15px;
+            font-size: 1.2rem;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex-grow: 1;
+            margin-left: 280px;
+            padding: 20px;
+        }
+
+        /* Top Bar */
+        .top-bar {
+            background: white;
+            padding: 15px 30px;
+            border-radius: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.05);
+            margin-bottom: 30px;
+        }
+
+        /* Glass Cards */
+        .glass-card {
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+            height: 100%;
+            transition: transform 0.3s ease;
+            border: 1px solid rgba(0, 0, 0, 0.02);
+        }
+
+        .glass-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+        }
+
+        .bg-gradient-primary {
+            background: linear-gradient(45deg, #0d6efd, #0dcaf0);
+        }
+
+        .bg-gradient-success {
+            background: linear-gradient(45deg, #198754, #20c997);
+        }
+
+        .bg-gradient-warning {
+            background: linear-gradient(45deg, #ffc107, #ffca2c);
+        }
+
+        /* Table */
+        .table-custom th {
+            font-weight: 600;
+            color: #6c757d;
+            border: none;
+        }
+
+        .table-custom td {
+            vertical-align: middle;
+            border-bottom: 1px solid #f0f0f0;
+            padding: 15px 10px;
+        }
+
+        .status-badge {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-brand">
+                <i class="bi bi-cpu me-2"></i> QualTech AI
+            </div>
+            <nav class="nav flex-column">
+                <a class="nav-link active" href="/dashboard.html">
+                    <i class="bi bi-speedometer2"></i> Dashboard
+                </a>
+                <a class="nav-link" href="/video-analysis.html">
+                    <i class="bi bi-file-earmark-play"></i> Video Analysis
+                </a>
+                <a class="nav-link" href="#">
+                    <i class="bi bi-graph-up"></i> Reports
+                </a>
+                <a class="nav-link" href="#">
+                    <i class="bi bi-people"></i> Team
+                </a>
+                <a class="nav-link" href="#">
+                    <i class="bi bi-gear"></i> Settings
+                </a>
+                <div class="mt-auto">
+                    <a class="nav-link text-danger" href="#" onclick="logout()">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </a>
+                </div>
+            </nav>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Top Bar -->
+            <div class="top-bar">
+                <h4 class="mb-0 fw-bold text-dark" id="greeting">Dashboard</h4>
+                <div class="d-flex align-items-center gap-3">
+                    <button class="btn btn-light rounded-circle position-relative" title="Notifications"
+                        aria-label="Notifications">
+                        <i class="bi bi-bell"></i>
+                        <span
+                            class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle"></span>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-light rounded-pill px-3 dropdown-toggle" type="button"
+                            data-bs-toggle="dropdown">
+                            <i class="bi bi-person-circle me-2"></i><span id="userName">User</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#">Profile</a></li>
+                            <li><a class="dropdown-item text-danger" href="#" onclick="logout()">Logout</a></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Widgets -->
+            <div class="container-fluid px-0">
+                <!-- Welcome Section -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="glass-card bg-primary text-white"
+                            style="background: linear-gradient(135deg, #0d6efd 0%, #6610f2 100%);">
+                            <div class="row align-items-center">
+                                <div class="col-md-8">
+                                    <h2 class="fw-bold mb-2">Welcome Back!</h2>
+                                    <p class="lead mb-3">Ready to analyze some videos today? Upload meaningful content
+                                        and get AI-powered insights instantly.</p>
+                                    <a href="/video-analysis.html"
+                                        class="btn btn-light text-primary fw-bold px-4 rounded-pill">
+                                        <i class="bi bi-cloud-upload me-2"></i>Quick Upload
+                                    </a>
+                                </div>
+                                <div class="col-md-4 text-center d-none d-md-block">
+                                    <i class="bi bi-rocket-takeoff" style="font-size: 100px; opacity: 0.3;"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="row g-4 mb-4">
+                    <div class="col-md-4">
+                        <div class="glass-card">
+                            <div class="stat-icon bg-gradient-primary text-white">
+                                <i class="bi bi-camera-video"></i>
+                            </div>
+                            <h6 class="text-muted">Total Videos Analyzed</h6>
+                            <h3 class="fw-bold mb-0">124</h3>
+                            <small class="text-success"><i class="bi bi-arrow-up"></i> +12% this month</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="glass-card">
+                            <div class="stat-icon bg-gradient-success text-white">
+                                <i class="bi bi-emoji-smile"></i>
+                            </div>
+                            <h6 class="text-muted">Avg. Sentiment Score</h6>
+                            <h3 class="fw-bold mb-0">86%</h3>
+                            <small class="text-muted">Positive Feedback</small>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="glass-card">
+                            <div class="stat-icon bg-gradient-warning text-white">
+                                <i class="bi bi-hdd"></i>
+                            </div>
+                            <h6 class="text-muted">Storage Used</h6>
+                            <h3 class="fw-bold mb-0">2.4 GB</h3>
+                            <div class="progress mt-2" style="height: 5px;">
+                                <div class="progress-bar bg-warning" style="width: 45%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activity & Company Updates -->
+                <div class="row g-4">
+                    <!-- Recent Activity -->
+                    <div class="col-lg-8">
+                        <div class="glass-card">
+                            <div class="d-flex justify-content-between align-items-center mb-4">
+                                <h5 class="fw-bold mb-0">Recent Activity</h5>
+                                <a href="#" class="text-primary text-decoration-none small">View All</a>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-custom mb-0">
+                                    <thead>
+                                        <tr>
+                                            <th>File Name</th>
+                                            <th>Date</th>
+                                            <th>Status</th>
+                                            <th>Sentiment</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recentFilesBody">
+                                        <!-- Mock Data -->
+                                        <tr>
+                                            <td><i
+                                                    class="bi bi-file-earmark-play me-2 text-primary"></i>meeting_rec_01.mp4
+                                            </td>
+                                            <td>Oct 24, 2025</td>
+                                            <td><span
+                                                    class="status-badge bg-success bg-opacity-10 text-success">Completed</span>
+                                            </td>
+                                            <td>Positive</td>
+                                            <td><button class="btn btn-sm btn-light" title="View Details"><i
+                                                        class="bi bi-eye"></i></button>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><i
+                                                    class="bi bi-file-earmark-play me-2 text-primary"></i>product_demo.mov
+                                            </td>
+                                            <td>Oct 23, 2025</td>
+                                            <td><span
+                                                    class="status-badge bg-success bg-opacity-10 text-success">Completed</span>
+                                            </td>
+                                            <td>Neutral</td>
+                                            <td><button class="btn btn-sm btn-light" title="View Details"><i
+                                                        class="bi bi-eye"></i></button>
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td><i
+                                                    class="bi bi-file-earmark-play me-2 text-primary"></i>customer_feedback.mp4
+                                            </td>
+                                            <td>Oct 22, 2025</td>
+                                            <td><span
+                                                    class="status-badge bg-warning bg-opacity-10 text-warning">Processing</span>
+                                            </td>
+                                            <td>-</td>
+                                            <td><button class="btn btn-sm btn-light" disabled title="Processing"><i
+                                                        class="bi bi-hourglass"></i></button></td>
+                                        </tr>
+                                        <tr>
+                                            <td><i
+                                                    class="bi bi-file-earmark-play me-2 text-primary"></i>interview_clip.mp4
+                                            </td>
+                                            <td>Oct 20, 2025</td>
+                                            <td><span
+                                                    class="status-badge bg-danger bg-opacity-10 text-danger">Failed</span>
+                                            </td>
+                                            <td>-</td>
+                                            <td><button class="btn btn-sm btn-light" title="Retry"><i
+                                                        class="bi bi-arrow-repeat"></i></button></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Company Updates -->
+                    <div class="col-lg-4">
+                        <div class="glass-card">
+                            <h5 class="fw-bold mb-4">Company Updates</h5>
+                            <div class="d-flex mb-3">
+                                <div class="me-3">
+                                    <div class="bg-primary bg-opacity-10 text-primary rounded p-2">
+                                        <i class="bi bi-megaphone"></i>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h6 class="fw-bold mb-1">New API Version Released</h6>
+                                    <p class="text-muted small mb-0">Backend API v2 is now live with improved
+                                        performance.</p>
+                                    <small class="text-muted" style="font-size: 0.75rem;">2 hours ago</small>
+                                </div>
+                            </div>
+                            <hr class="text-muted opacity-25">
+                            <div class="d-flex mb-3">
+                                <div class="me-3">
+                                    <div class="bg-success bg-opacity-10 text-success rounded p-2">
+                                        <i class="bi bi-calendar-check"></i>
+                                    </div>
+                                </div>
+                                <div>
+                                    <h6 class="fw-bold mb-1">Team Meeting</h6>
+                                    <p class="text-muted small mb-0">Weekly sync tomorrow at 10:00 AM EST.</p>
+                                    <small class="text-muted" style="font-size: 0.75rem;">5 hours ago</small>
+                                </div>
+                            </div>
+
+                            <div class="mt-4 p-3 bg-light rounded text-center">
+                                <h6 class="fw-bold">Need Help?</h6>
+                                <p class="small text-muted mb-2">Contact our support team anytime.</p>
+                                <button class="btn btn-outline-primary btn-sm rounded-pill w-100">Get Support</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Auth Protection
+        document.addEventListener('DOMContentLoaded', function () {
+            const token = localStorage.getItem('authToken');
+            const userName = localStorage.getItem('userName');
+
+            if (!token) {
+                window.location.href = '/?error=unauthorized';
+                return;
+            }
+
+            // Set User Name
+            if (userName) {
+                document.getElementById('userName').textContent = userName;
+                document.getElementById('greeting').textContent = getGreeting() + ", " + userName;
+            }
+        });
+
+        function getGreeting() {
+            const hour = new Date().getHours();
+            if (hour < 12) return "Good Morning";
+            if (hour < 18) return "Good Afternoon";
+            return "Good Evening";
+        }
+
+        async function refreshToken() {
+            const refresh = localStorage.getItem('refreshToken');
+            if (!refresh) return false;
+
+            try {
+                const response = await fetch('/api/auth/refresh-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken: refresh })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('authToken', data.accessToken);
+                    localStorage.setItem('refreshToken', data.refreshToken);
+                    return true;
+                }
+            } catch (error) {
+                console.error('Token refresh failed:', error);
+            }
+            return false;
+        }
+
+        async function authenticatedFetch(url, options = {}) {
+            let token = localStorage.getItem('authToken');
+
+            options.headers = {
+                ...options.headers,
+                'Authorization': 'Bearer ' + token
+            };
+
+            let response = await fetch(url, options);
+
+            if (response.status === 401) {
+                const refreshed = await refreshToken();
+                if (refreshed) {
+                    token = localStorage.getItem('authToken');
+                    options.headers['Authorization'] = 'Bearer ' + token;
+                    response = await fetch(url, options);
+                } else {
+                    localStorage.clear();
+                    window.location.href = '/?error=session_expired';
+                    throw new Error('Session expired');
+                }
+            }
+            return response;
+        }
+
+        async function logout() {
+            const refresh = localStorage.getItem('refreshToken');
+            if (refresh) {
+                try {
+                    await fetch('/api/auth/logout', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ refreshToken: refresh })
+                    });
+                } catch (e) {
+                    console.error('Logout request failed', e);
+                }
+            }
+            localStorage.clear();
+            window.location.href = '/';
+        }
+    </script>
+</body>
+
+</html>

@@ -5,7 +5,6 @@ import static org.springframework.security.config.Customizer.withDefaults;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import java.util.Collections;
 import java.util.Arrays;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -39,6 +38,12 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/",
                                 "/index.html",
+                                "/video-analysis.html",
+                                "/landing.html",
+                                "/dashboard.html",
+                                "/dashboard",
+                                "/css/**",
+                                "/js/**",
                                 "/static/**",
                                 "/assets/**",
                                 "/favicon.ico",
@@ -80,10 +85,12 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000")); // frontend URL
+        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000", "http://localhost:8080")); // include
+                                                                                                          // both
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList("authorization", "content-type", "x-auth-token"));
-        configuration.setExposedHeaders(Collections.singletonList("x-auth-token"));
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "authorization", "Content-Type", "content-type",
+                "x-auth-token", "X-Requested-With"));
+        configuration.setExposedHeaders(Arrays.asList("Authorization", "authorization", "x-auth-token"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Sentiment Analysis - QualTech AI</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="/css/styles.css" rel="stylesheet">
+    <style>
+        :root {
+            --glass-bg: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.4);
+            --primary-gradient: linear-gradient(135deg, #6610f2 0%, #0d6efd 100%);
+            --aws-color: #FF9900;
+            --azure-color: #0078D4;
+        }
+
+        body {
+            background: #f0f2f5;
+            background-image: radial-gradient(at 0% 0%, rgba(102, 16, 242, 0.05) 0, transparent 50%),
+                radial-gradient(at 50% 0%, rgba(13, 110, 253, 0.05) 0, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(0, 120, 212, 0.05) 0, transparent 50%);
+            min-height: 100vh;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+        }
+
+        .analysis-card {
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            background: var(--glass-bg);
+            -webkit-backdrop-filter: blur(15px);
+            backdrop-filter: blur(15px);
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.05);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            overflow: hidden;
+        }
+
+        .provider-card {
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .provider-card.active {
+            border-color: #0d6efd;
+            background: rgba(13, 110, 253, 0.05);
+            transform: translateY(-5px);
+        }
+
+        .provider-card.active::after {
+            content: '\F633';
+            font-family: 'bootstrap-icons';
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            color: #0d6efd;
+            font-size: 1.2rem;
+        }
+
+        .aws-provider.active {
+            border-color: var(--aws-color);
+            background: rgba(255, 153, 0, 0.05);
+        }
+
+        .aws-provider.active::after {
+            color: var(--aws-color);
+        }
+
+        .azure-provider.active {
+            border-color: var(--azure-color);
+            background: rgba(0, 120, 212, 0.05);
+        }
+
+        .azure-provider.active::after {
+            color: var(--azure-color);
+        }
+
+        .upload-zone {
+            border: 2px dashed #dee2e6;
+            border-radius: 20px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .upload-zone:hover {
+            border-color: #0d6efd;
+            background: rgba(13, 110, 253, 0.02);
+        }
+
+        .hero-header {
+            background: var(--primary-gradient);
+            color: white;
+            padding: 80px 0 140px 0;
+            clip-path: ellipse(150% 100% at 50% 0%);
+            position: relative;
+        }
+
+        .hero-header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 100%;
+            background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 320'%3E%3Cpath fill='%23ffffff' fill-opacity='0.05' d='M0,192L48,197.3C96,203,192,213,288,192C384,171,480,117,576,112C672,107,768,149,864,154.7C960,160,1056,128,1152,112C1248,96,1344,96,1392,96L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z'%3E%3C/path%3E%3C/svg%3E") no-repeat bottom;
+            background-size: cover;
+            pointer-events: none;
+        }
+
+        .btn-premium {
+            background: var(--primary-gradient);
+            border: none;
+            color: white;
+            padding: 12px 35px;
+            border-radius: 50px;
+            font-weight: 600;
+            box-shadow: 0 10px 20px rgba(102, 16, 242, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .btn-premium:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 25px rgba(102, 16, 242, 0.3);
+            color: white;
+        }
+
+        .spinner-grow {
+            animation-duration: 1s;
+        }
+
+        /* Sentiment Visuals */
+        .sentiment-badge {
+            font-size: 0.9rem;
+            padding: 8px 20px;
+            border-radius: 50px;
+            font-weight: 700;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .animate-up {
+            animation: slideUp 0.5s cubic-bezier(0.165, 0.84, 0.44, 1) forwards;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .insights-card {
+            min-height: 520px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            background: rgba(255, 255, 255, 0.75);
+            -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(20px);
+        }
+
+        .state-container {
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            width: 100%;
+        }
+
+        .hidden-state {
+            opacity: 0;
+            transform: translateY(20px);
+            pointer-events: none;
+            position: absolute;
+        }
+
+        .visible-state {
+            opacity: 1;
+            transform: translateY(0);
+            position: relative;
+        }
+
+        .sticky-column {
+            position: sticky;
+            top: 20px;
+            z-index: 10;
+        }
+
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: .7;
+                transform: scale(1.05);
+            }
+        }
+
+        .spin {
+            animation: spin 2s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            from {
+                transform: rotate(0deg);
+            }
+
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Navigation -->
+    <nav
+        class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top border-bottom border-white border-opacity-10 shadow-sm">
+        <div class="container">
+            <a class="navbar-brand fw-bold d-flex align-items-center" href="/">
+                <div class="bg-white text-primary rounded-pill p-2 me-2 d-flex align-items-center justify-content-center shadow-sm"
+                    style="width: 38px; height: 38px;">
+                    <i class="bi bi-cpu fs-5"></i>
+                </div>
+                <span class="ls-tight">QualTech AI</span>
+            </a>
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link px-3" href="/dashboard.html">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active px-3" href="/video-analysis.html">Video Analysis</a>
+                    </li>
+                </ul>
+                <div class="d-flex align-items-center">
+                    <div class="me-3 text-white opacity-75 d-none d-lg-block">
+                        <small>Welcome,</small> <span id="navUserName" class="fw-bold text-white">User</span>
+                    </div>
+                    <button class="btn btn-light btn-sm rounded-pill px-4 fw-bold text-primary shadow-sm"
+                        onclick="logout()">
+                        <i class="bi bi-box-arrow-right me-1"></i>Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Header -->
+    <header class="hero-header text-center">
+        <div class="container position-relative" style="z-index: 1;">
+            <h1 class="display-3 fw-bolder mb-3 mt-4 tracking-tight">Multi-Engine AI Analysis</h1>
+            <p class="lead opacity-90 mx-auto fs-4" style="max-width: 700px; font-weight: 400;">
+                Seamlessly toggle between AWS and Azure infrastructure to compare enterprise-grade
+                sentiment and transcription accuracy.
+            </p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <div class="container" style="margin-top: -80px; padding-bottom: 100px;">
+        <div class="row justify-content-center">
+            <div class="col-lg-11">
+                <div class="row g-4">
+                    <!-- Left: Configuration & Upload -->
+                    <div class="col-lg-7">
+                        <!-- Provider Selection -->
+                        <div class="card analysis-card mb-4 border-0 shadow-lg">
+                            <div class="card-body p-4 p-md-5">
+                                <h5 class="fw-bold mb-4 d-flex align-items-center">
+                                    <i class="bi bi-layers text-primary me-2"></i> Choose Cloud Infrastructure
+                                </h5>
+                                <div class="row g-3">
+                                    <div class="col-6">
+                                        <div class="card provider-card aws-provider p-4 text-center h-100" id="awsBtn"
+                                            onclick="selectProvider('aws')">
+                                            <div class="mb-3">
+                                                <img src="https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg"
+                                                    alt="AWS" style="height: 35px; filter: grayscale(1) opacity(0.7);"
+                                                    class="provider-logo">
+                                            </div>
+                                            <div class="fw-bold mb-1">Amazon Web Services</div>
+                                            <small class="text-muted">S3 • Transcribe • Comprehend</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="card provider-card azure-provider p-4 text-center h-100"
+                                            id="azureBtn" onclick="selectProvider('azure')">
+                                            <div class="mb-3">
+                                                <img src="https://upload.wikimedia.org/wikipedia/commons/f/fa/Microsoft_Azure.svg"
+                                                    alt="Azure" style="height: 35px; filter: grayscale(1) opacity(0.7);"
+                                                    class="provider-logo text-azure">
+                                            </div>
+                                            <div class="fw-bold mb-1">Microsoft Azure</div>
+                                            <small class="text-muted">Blob • AI Speech • Language</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Upload Card -->
+                        <div class="card analysis-card mb-4 border-0 shadow-lg">
+                            <div class="card-body p-4 p-md-5 position-relative">
+                                <!-- Loading Overlay -->
+                                <div class="loading-overlay" id="loadingOverlay">
+                                    <div class="mb-4">
+                                        <div class="spinner-grow text-primary" style="width: 3.5rem; height: 3.5rem;"
+                                            role="status"></div>
+                                    </div>
+                                    <h4 class="fw-bold text-primary mb-4" id="pipelineTitle">Initializing AWS Pipeline
+                                    </h4>
+                                    <div style="width: 300px;">
+                                        <div class="progress-step" id="step1">
+                                            <i class="bi bi-check-circle-fill me-2"></i> <span id="step1Text">S3 Storage
+                                                Link Established</span>
+                                        </div>
+                                        <div class="progress-step" id="step2">
+                                            <i class="bi bi-circle me-2"></i> <span id="step2Text">Transcribing Audio
+                                                Stream</span>
+                                        </div>
+                                        <div class="progress-step" id="step3">
+                                            <i class="bi bi-circle me-2"></i> <span id="step3Text">Generating Neural
+                                                Sentiment</span>
+                                        </div>
+                                    </div>
+                                    <div class="mt-4 px-4 text-center">
+                                        <div class="progress" style="height: 6px; border-radius: 10px;">
+                                            <div id="overallProgress"
+                                                class="progress-bar progress-bar-striped progress-bar-animated"
+                                                style="width: 0%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <form id="uploadForm">
+                                    <div class="upload-zone" id="dropZone">
+                                        <div
+                                            class="bg-primary bg-opacity-10 text-primary rounded-circle d-inline-flex p-4 mb-3 shadow-sm">
+                                            <i class="bi bi-cloud-arrow-up fs-1"></i>
+                                        </div>
+                                        <h4 class="fw-bolder">Upload Media Content</h4>
+                                        <p class="text-muted small">MP4 or MOV video files supported (Max 500MB)</p>
+                                        <input type="file" id="fileInput" name="file" accept="video/mp4,video/quicktime"
+                                            class="d-none" title="Upload Video">
+                                    </div>
+
+                                    <div class="mt-4" id="fileInfo" style="display: none;">
+                                        <div
+                                            class="p-4 bg-white bg-opacity-50 rounded-4 border shadow-sm d-flex align-items-center">
+                                            <div class="bg-primary bg-opacity-10 p-3 rounded-4 me-3">
+                                                <i class="bi bi-play-btn-fill text-primary fs-3"></i>
+                                            </div>
+                                            <div class="flex-grow-1 overflow-hidden">
+                                                <div id="fileName" class="fw-bold text-truncate fs-5">video.mp4</div>
+                                                <div id="fileSize" class="text-muted small fw-medium">0 MB</div>
+                                            </div>
+                                            <button type="submit" class="btn btn-premium ms-3">
+                                                Analyze <i class="bi bi-chevron-right ms-2 small"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
+
+                                <!-- Video Preview -->
+                                <div id="videoPreviewSection" style="display: none;" class="mt-5">
+                                    <h6 class="fw-bold mb-3 text-uppercase small tracking-widest text-muted">Preview
+                                        Monitor</h6>
+                                    <div
+                                        class="video-preview-container rounded-5 overflow-hidden shadow-2xl border-4 border-white">
+                                        <video id="videoPreview" class="w-100" controls></video>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Insights Dashboard -->
+                    <div class="col-lg-5">
+                        <div class="sticky-column">
+                            <div class="card insights-card border-0 shadow-2xl rounded-5 overflow-hidden">
+                                <!-- State 1: Placeholder -->
+                                <div id="placeholderState"
+                                    class="state-container visible-state d-flex flex-column align-items-center justify-content-center p-5 text-center h-100"
+                                    style="min-height: 520px;">
+                                    <div class="bg-primary bg-opacity-10 p-4 rounded-circle mb-4 shadow-inner">
+                                        <i class="bi bi-cpu-fill fs-1 text-primary"></i>
+                                    </div>
+                                    <h4 class="fw-black text-dark mb-2">Neural Engine Ready</h4>
+                                    <p class="text-muted mb-0">Select your infrastructure and upload a video to initiate
+                                        cognitive analysis.</p>
+
+                                    <div class="mt-5 w-100 px-4">
+                                        <div class="d-flex align-items-center justify-content-between mb-2 opacity-50">
+                                            <small class="fw-bold text-uppercase tracking-widest">System Status</small>
+                                            <span class="badge bg-success rounded-pill">Optimal</span>
+                                        </div>
+                                        <div class="progress rounded-pill bg-light" style="height: 4px;">
+                                            <div class="progress-bar bg-primary" style="width: 100%"></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- State 2: Results -->
+                                <div id="resultsState" class="state-container hidden-state p-4 p-md-5">
+                                    <div class="d-flex justify-content-between align-items-start mb-4">
+                                        <div>
+                                            <h6 class="text-primary text-uppercase fw-black tracking-widest mb-1"
+                                                style="font-size: 0.7rem;">Analysis Complete</h6>
+                                            <h2 id="sentimentValue" class="fw-black display-5 mb-0 ls-tight">Positive
+                                            </h2>
+                                        </div>
+                                        <div id="sentimentIcon" class="display-3">😃</div>
+                                    </div>
+
+                                    <div class="row g-3 mb-4">
+                                        <div class="col-12">
+                                            <div id="sentimentBadge"
+                                                class="badge bg-primary w-100 py-3 rounded-4 fs-6 shadow-sm">95%
+                                                Confidence</div>
+                                        </div>
+                                    </div>
+
+                                    <div class="bg-light bg-opacity-50 rounded-5 p-4 mb-4 border border-white">
+                                        <h6
+                                            class="fw-bold mb-4 text-uppercase small tracking-widest text-muted d-flex justify-content-between">
+                                            <span>Neural Distribution</span>
+                                            <i class="bi bi-reception-4"></i>
+                                        </h6>
+                                        <div class="row g-4">
+                                            <div class="col-6">
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span class="small fw-bold">Positive</span>
+                                                    <span class="text-success small fw-bold"
+                                                        id="positiveScore">0%</span>
+                                                </div>
+                                                <div class="progress rounded-pill bg-white shadow-inner"
+                                                    style="height: 6px;">
+                                                    <div class="progress-bar bg-success shadow-sm" id="positiveBar">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span class="small fw-bold">Negative</span>
+                                                    <span class="text-danger small fw-bold" id="negativeScore">0%</span>
+                                                </div>
+                                                <div class="progress rounded-pill bg-white shadow-inner"
+                                                    style="height: 6px;">
+                                                    <div class="progress-bar bg-danger shadow-sm" id="negativeBar">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span class="small fw-bold">Neutral</span>
+                                                    <span class="text-warning small fw-bold" id="neutralScore">0%</span>
+                                                </div>
+                                                <div class="progress rounded-pill bg-white shadow-inner"
+                                                    style="height: 6px;">
+                                                    <div class="progress-bar bg-warning shadow-sm" id="neutralBar">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="d-flex justify-content-between mb-2">
+                                                    <span class="small fw-bold">Mixed</span>
+                                                    <span class="text-info small fw-bold" id="mixedScore">0%</span>
+                                                </div>
+                                                <div class="progress rounded-pill bg-white shadow-inner"
+                                                    style="height: 6px;">
+                                                    <div class="progress-bar bg-info shadow-sm" id="mixedBar"></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="mb-0">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <h6 class="fw-bold mb-0 text-uppercase small tracking-widest text-muted">
+                                                Transcript Snippet</h6>
+                                            <button
+                                                class="btn btn-link btn-sm text-primary p-0 text-decoration-none fw-bold"
+                                                id="downloadBtnMini">
+                                                <i class="bi bi-download me-1"></i> Export
+                                            </button>
+                                        </div>
+                                        <div class="p-3 bg-white bg-opacity-50 rounded-4 border mb-4"
+                                            style="max-height: 80px; overflow-y: auto;">
+                                            <p id="transcriptTextMini"
+                                                class="mb-0 small text-dark opacity-75 fw-medium">...</p>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-premium flex-grow-1 rounded-pill fw-black py-3"
+                                                onclick="showFullTranscript()">
+                                                Full Case Study
+                                            </button>
+                                        </div>
+                                        <div id="providerLabel"
+                                            class="text-center mt-3 text-muted small fw-bold text-uppercase tracking-widest opacity-50"
+                                            style="font-size: 0.6rem;">
+                                            Engine: AWS Comprehend
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- Full Transcript Modal -->
+    <div class="modal fade" id="transcriptModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content border-0 shadow-2xl rounded-5"
+                style="backdrop-filter: blur(20px); background: rgba(255,255,255,0.9);">
+                <div class="modal-header border-0 px-4 pt-4">
+                    <h5 class="modal-title fw-black"><i class="bi bi-file-text-fill text-primary me-2"></i>Full Textual
+                        Analysis</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"
+                        title="Close Transcript Modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="p-4 bg-white rounded-5 border shadow-inner"
+                        style="max-height: 500px; overflow-y: auto;">
+                        <p class="mb-0 lh-lg" id="fullTranscriptText"
+                            style="white-space: pre-wrap; font-size: 1.1rem; color: #1a1a1a;">No data available.</p>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 p-4">
+                    <button id="downloadBtnModal" class="btn btn-premium w-100">
+                        <i class="bi bi-file-earmark-arrow-down-fill me-2"></i>Download .txt Analysis
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let selectedProvider = 'aws';
+
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const uploadForm = document.getElementById('uploadForm');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const placeholderState = document.getElementById('placeholderState');
+        const resultsState = document.getElementById('resultsState');
+
+        // Modal & Other Elements
+        const tModal = new bootstrap.Modal(document.getElementById('transcriptModal'));
+
+        function selectProvider(provider) {
+            selectedProvider = provider;
+            document.querySelectorAll('.provider-card').forEach(c => {
+                c.classList.remove('active');
+                c.querySelector('.provider-logo').style.filter = 'grayscale(1) opacity(0.7)';
+            });
+            const activeBtn = document.getElementById(provider + 'Btn');
+            activeBtn.classList.add('active');
+            activeBtn.querySelector('.provider-logo').style.filter = 'none';
+
+            // Update Loading States Logic
+            const title = document.getElementById('pipelineTitle');
+            const s1 = document.getElementById('step1Text');
+            const s2 = document.getElementById('step2Text');
+            const s3 = document.getElementById('step3Text');
+
+            if (provider === 'aws') {
+                title.textContent = "Initializing AWS Pipeline";
+                s1.textContent = "S3 Storage Link Established";
+                s2.textContent = "AWS Transcribe Audio Scan";
+                s3.textContent = "AWS Comprehend Neural Inference";
+            } else {
+                title.textContent = "Initializing Azure Pipeline";
+                s1.textContent = "Azure Blob Container Storage";
+                s2.textContent = "Azure AI Speech Recognition";
+                s3.textContent = "Azure Cognitive Language Sentiment";
+            }
+        }
+
+        // Initialize with default select
+        document.addEventListener('DOMContentLoaded', () => {
+            selectProvider('aws');
+
+            // Auth Check
+            const token = localStorage.getItem('authToken');
+            const userName = localStorage.getItem('userName');
+            if (!token) window.location.href = '/?error=unauthorized';
+            if (userName) document.getElementById('navUserName').textContent = userName;
+        });
+
+        // File Selection Logic
+        dropZone.onclick = () => fileInput.click();
+        dropZone.ondragover = (e) => { e.preventDefault(); dropZone.classList.add('bg-light'); };
+        dropZone.ondragleave = () => dropZone.classList.remove('bg-light');
+        dropZone.ondrop = (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('bg-light');
+            if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+        };
+        fileInput.onchange = (e) => { if (fileInput.files.length) handleFile(fileInput.files[0]); };
+
+        function handleFile(file) {
+            document.getElementById('fileName').textContent = file.name;
+            document.getElementById('fileSize').textContent = (file.size / (1024 * 1024)).toFixed(2) + ' MB';
+            document.getElementById('fileInfo').style.display = 'block';
+
+            const url = URL.createObjectURL(file);
+            document.getElementById('videoPreview').src = url;
+            document.getElementById('videoPreviewSection').style.display = 'block';
+
+            const dt = new DataTransfer();
+            dt.items.add(file);
+            fileInput.files = dt.files;
+        }
+
+        function setPipelineProgress(step) {
+            const steps = [document.getElementById('step1'), document.getElementById('step2'), document.getElementById('step3')];
+            const bar = document.getElementById('overallProgress');
+
+            steps.forEach((s, i) => {
+                const icon = s.querySelector('i');
+                if (i < step) {
+                    s.classList.add('active', 'text-success');
+                    icon.className = 'bi bi-check-circle-fill me-2';
+                } else if (i === step) {
+                    s.classList.add('active', 'text-primary');
+                    icon.className = 'bi bi-arrow-repeat spin me-2';
+                } else {
+                    s.classList.remove('active', 'text-success', 'text-primary');
+                    icon.className = 'bi bi-circle me-2';
+                }
+            });
+            bar.style.width = ((step + 1) * 33.3) + '%';
+        }
+
+        async function refreshToken() {
+            const refresh = localStorage.getItem('refreshToken');
+            if (!refresh) return false;
+
+            try {
+                const response = await fetch('/api/auth/refresh-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refreshToken: refresh })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    localStorage.setItem('authToken', data.accessToken);
+                    localStorage.setItem('refreshToken', data.refreshToken);
+                    return true;
+                }
+            } catch (error) {
+                console.error('Token refresh failed:', error);
+            }
+            return false;
+        }
+
+        async function authenticatedFetch(url, options = {}) {
+            let token = localStorage.getItem('authToken');
+
+            options.headers = {
+                ...options.headers,
+                'Authorization': 'Bearer ' + token
+            };
+
+            let response = await fetch(url, options);
+
+            if (response.status === 401) {
+                const refreshed = await refreshToken();
+                if (refreshed) {
+                    token = localStorage.getItem('authToken');
+                    options.headers['Authorization'] = 'Bearer ' + token;
+                    response = await fetch(url, options);
+                } else {
+                    localStorage.clear();
+                    window.location.href = '/?error=session_expired';
+                    throw new Error('Session expired');
+                }
+            }
+            return response;
+        }
+
+        uploadForm.onsubmit = async (e) => {
+            e.preventDefault();
+            if (!fileInput.files.length) return;
+
+            loadingOverlay.style.display = 'flex';
+            // Keep placeholder visible during loading for better UX
+            placeholderState.classList.add('visible-state');
+            placeholderState.classList.remove('hidden-state');
+            resultsState.classList.add('hidden-state');
+            resultsState.classList.remove('visible-state');
+
+            let currentStep = 0;
+            const progressInterval = setInterval(() => {
+                if (currentStep < 2) {
+                    currentStep++;
+                    setPipelineProgress(currentStep);
+                }
+            }, 5000);
+
+            setPipelineProgress(0);
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('provider', selectedProvider);
+
+            try {
+                const token = localStorage.getItem('authToken');
+                if (!token) {
+                    throw new Error("You are not logged in. Please log in to perform analysis.");
+                }
+
+                const response = await authenticatedFetch('/api/video/analyze?provider=' + selectedProvider, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorMessage = errorText;
+                    try {
+                        const errorJson = JSON.parse(errorText);
+                        errorMessage = errorJson.error || errorJson.message || errorText;
+                    } catch (e) {
+                        // Not JSON, use raw text
+                    }
+
+                    if (response.status === 401) {
+                        throw new Error("Unauthorized (401): " + errorMessage + ". Please try logging out and logging back in.");
+                    }
+                    throw new Error(errorMessage || `Server error (${response.status})`);
+                }
+
+                const data = await response.json();
+                clearInterval(progressInterval);
+                displayResults(data);
+
+            } catch (err) {
+                console.error("Analysis Error:", err);
+                alert('Analysis failed: ' + err.message);
+                // Reset to placeholder state on error
+                placeholderState.classList.add('visible-state');
+                placeholderState.classList.remove('hidden-state');
+                resultsState.classList.add('hidden-state');
+                resultsState.classList.remove('visible-state');
+            } finally {
+                loadingOverlay.style.display = 'none';
+                clearInterval(progressInterval);
+            }
+        };
+
+        function displayResults(data) {
+            // Switch states with animation
+            placeholderState.classList.add('hidden-state');
+            placeholderState.classList.remove('visible-state');
+
+            setTimeout(() => {
+                resultsState.classList.add('visible-state');
+                resultsState.classList.remove('hidden-state');
+            }, 50);
+
+            document.getElementById('transcriptTextMini').textContent = data.transcript;
+            document.getElementById('fullTranscriptText').textContent = data.transcript;
+
+            const sentiment = data.sentimentAnalysis.sentiment;
+            const valueEl = document.getElementById('sentimentValue');
+            const iconEl = document.getElementById('sentimentIcon');
+            const badgeEl = document.getElementById('sentimentBadge');
+            const providerEl = document.getElementById('providerLabel');
+
+            valueEl.textContent = sentiment;
+            providerEl.textContent = "Engine: " + (selectedProvider === 'aws' ? 'Amazon Comprehend' : 'Azure Cognitive Language');
+
+            badgeEl.className = 'badge sentiment-badge';
+            if (sentiment === 'POSITIVE') { iconEl.textContent = '😃'; badgeEl.classList.add('bg-success'); }
+            else if (sentiment === 'NEGATIVE') { iconEl.textContent = '😠'; badgeEl.classList.add('bg-danger'); }
+            else if (sentiment === 'NEUTRAL') { iconEl.textContent = '😐'; badgeEl.classList.add('bg-warning', 'text-dark'); }
+            else { iconEl.textContent = '🤔'; badgeEl.classList.add('bg-secondary'); }
+
+            const scores = data.sentimentAnalysis.sentimentScore;
+            const matchScore = (scores[sentiment.charAt(0) + sentiment.slice(1).toLowerCase()] * 100).toFixed(0);
+            badgeEl.textContent = matchScore + '% Accuracy Match';
+
+            updateBar('positive', scores.Positive);
+            updateBar('negative', scores.Negative);
+            updateBar('neutral', scores.Neutral);
+            updateBar('mixed', scores.Mixed || 0);
+
+            const dl = () => {
+                const blob = new Blob([data.transcript], { type: 'text/plain' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `qualtech_insight_${Date.now()}.txt`;
+                a.click();
+            };
+            document.getElementById('downloadBtnMini').onclick = dl;
+            document.getElementById('downloadBtnModal').onclick = dl;
+        }
+
+        function updateBar(type, score) {
+            const perc = (score * 100).toFixed(1) + '%';
+            document.getElementById(type + 'Bar').style.width = perc;
+            document.getElementById(type + 'Score').textContent = perc;
+        }
+
+        function showFullTranscript() { tModal.show(); }
+        function logout() { localStorage.clear(); window.location.href = '/'; }
+    </script>
+</body>
+
+</html>
+```
