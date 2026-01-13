@@ -42,17 +42,14 @@ public class SecurityConfig {
                                 "/landing.html",
                                 "/dashboard.html",
                                 "/dashboard",
+                                "/face-management.html",
+                                "/api/auth/**",
                                 "/css/**",
                                 "/js/**",
                                 "/static/**",
                                 "/assets/**",
                                 "/favicon.ico",
-                                "/api/auth/**",
-                                "/actuator/**",
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html",
-                                "/webjars/**",
+                                "/*.html",
                                 "/error")
                         .permitAll()
                         .anyRequest().authenticated())
@@ -65,9 +62,6 @@ public class SecurityConfig {
                             response.getWriter().write("{\"error\": \"Unauthorized - " +
                                     authException.getMessage() + "\"}");
                         }));
-
-        // Note: securityContextRepository is not customized; default stateless handling
-        // is used
 
         return http.build();
     }

@@ -26,10 +26,27 @@ public class AzureSpeechService {
         this.speechConfig = speechConfig;
     }
 
+    /**
+     * Transcribes an audio/video file using Azure Speech Service Batch
+     * Transcription API v3.1
+     * 
+     * @param audioUrl The URL to the audio/video file. Must be a publicly
+     *                 accessible URL or
+     *                 a blob URL with SAS (Shared Access Signature) token for
+     *                 private containers.
+     *                 The SAS token must have READ permission and be valid for the
+     *                 duration of transcription.
+     * @return The transcribed text extracted from the audio/video file
+     * @throws RuntimeException if Azure Speech Service is not configured or
+     *                          transcription fails
+     */
     public String transcribeFile(String audioUrl) {
         if (speechConfig == null) {
             throw new RuntimeException("Azure Speech Service is not configured.");
         }
+
+        log.info("Starting Azure Batch Transcription for URL: {}",
+                audioUrl.substring(0, Math.min(100, audioUrl.length())) + "...");
 
         // Extract key and region from speechConfig properties
         String subscriptionKey = speechConfig.getProperty(PropertyId.SpeechServiceConnection_Key);

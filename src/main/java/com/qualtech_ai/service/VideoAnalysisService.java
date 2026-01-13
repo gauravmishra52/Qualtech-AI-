@@ -72,7 +72,14 @@ public class VideoAnalysisService {
         if ("azure".equalsIgnoreCase(activeProvider)) {
             // Azure Pipeline
             String blobUrl = azureBlobService.uploadFile(file, fileName);
-            transcriptText = azureSpeechService.transcribeFile(blobUrl);
+            log.info("Blob uploaded to Azure Storage: {}", blobUrl);
+
+            // Generate SAS URL for Azure Speech Service to access the private blob
+            // SAS token is valid for 24 hours, which is sufficient for transcription
+            String sasUrl = azureBlobService.generateSasUrl(fileName, java.time.Duration.ofHours(24));
+            log.info("Generated SAS URL for transcription (valid for 24 hours)");
+
+            transcriptText = azureSpeechService.transcribeFile(sasUrl);
         } else {
             // AWS Pipeline (Default)
             // 1. Upload to S3

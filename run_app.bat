@@ -1,0 +1,9 @@
+@echo off
+echo Cleaning Flyway schema history...
+psql -h localhost -U postgres -d qualtech_db -f clean_flyway.sql
+
+echo Cleaning and compiling the project...
+mvn clean compile
+
+echo Running the application...
+mvn spring-boot:run
