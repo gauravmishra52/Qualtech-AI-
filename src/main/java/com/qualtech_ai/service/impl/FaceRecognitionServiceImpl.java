@@ -50,17 +50,22 @@ import static org.bytedeco.opencv.global.opencv_imgcodecs.IMREAD_COLOR;
 @Service
 @RequiredArgsConstructor
 public class FaceRecognitionServiceImpl implements FaceRecognitionService {
-    private static final double FACE_MATCH_THRESHOLD = 0.6; // Cosine similarity threshold
-    private static final double FACE_DETECTION_CONFIDENCE = 0.5; // Minimum confidence for face detection
+    private static final double FACE_MATCH_THRESHOLD = 0.5; // Reduced threshold for better recognition
+    private static final double FACE_DETECTION_CONFIDENCE = 0.4; // Reduced for more sensitive detection
+    private static final int MAX_FACES_TO_PROCESS = 3; // Limit for real-time performance
 
     // DNN model paths - Using Caffe models
     private static final String FACE_DETECTOR_MODEL_RES = "classpath:face_models/deploy.prototxt";
     private static final String FACE_DETECTOR_WEIGHTS_RES = "classpath:face_models/res10_300x300_ssd_iter_140000.caffemodel";
 
-    // Image preprocessing parameters
+    // Image preprocessing parameters - Optimized for speed
     private static final int INPUT_WIDTH = 300;
     private static final int INPUT_HEIGHT = 300;
     private static final int FEATURE_SIZE = 128; // Standard face embedding size
+    
+    // Performance optimization constants
+    private static final int FACE_SIZE_THRESHOLD = 40; // Minimum face size for detection
+    private static final double LIVENESS_THRESHOLD = 80.0; // Reduced for faster liveness detection
 
     private final FaceUserRepository faceUserRepository;
     private final S3Service s3Service;
@@ -184,10 +189,16 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 return FaceVerificationResponse.failure("Face detection service is currently unavailable.");
             }
 
-            // Detect ALL faces in the frame
-            List<Rect> faceRects = detectFaces(image);
+            // Detect ALL faces in the frame - Optimized for real-time
+            List<Rect> faceRects = detectFacesOptimized(image);
             if (faceRects.isEmpty()) {
                 return FaceVerificationResponse.failure("No faces detected in the image");
+            }
+
+            // Limit faces for real-time performance
+            if (faceRects.size() > MAX_FACES_TO_PROCESS) {
+                faceRects = faceRects.subList(0, MAX_FACES_TO_PROCESS);
+                log.info("Processing {} largest faces for real-time performance", MAX_FACES_TO_PROCESS);
             }
 
             List<FaceDetectionResult> detections = new ArrayList<>();
@@ -204,10 +215,10 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                     float[] features = extractFeatureVector(resizedFace);
                     String embedding = featuresToString(features);
 
-                    // NEW: Calculate Liveness, Emotion, and Motion first
-                    double livenessScore = calculateLiveness(resizedFace);
+                    // Optimized liveness and emotion detection
+                    double livenessScore = calculateLivenessFast(resizedFace);
                     boolean isLive = livenessScore > LIVENESS_THRESHOLD;
-                    String emotion = detectEmotion(resizedFace);
+                    String emotion = detectEmotionFast(resizedFace);
                     String age = "N/A"; // Local model doesn't support age yet
                     boolean isMoving = false; // Initial state
 
@@ -470,6 +481,127 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             initializationFailed = true;
             log.error("CRITICAL: Failed to initialize face detector: {}", t.getMessage());
             // Don't throw - allow app to run, just won't detect faces locally
+        }
+    }
+
+    /**
+     * Optimized face detection for real-time performance
+     */
+    private List<Rect> detectFacesOptimized(Mat image) {
+        List<Rect> detectionsList = new java.util.ArrayList<>();
+        Mat blob = null;
+        Mat detections = null;
+
+        try {
+            // Prepare input blob with optimized parameters
+            blob = blobFromImage(image, 1.0, new Size(INPUT_WIDTH, INPUT_HEIGHT),
+                    new Scalar(104.0, 177.0, 123.0, 0.0), false, false, CV_32F);
+
+            // Thread-safe access to native DNN resource
+            synchronized (this) {
+                if (faceDetector == null) {
+                    log.warn("Face detector is null in detectFacesOptimized, attempting re-initialization.");
+                    initializeFaceDetector();
+                }
+                if (faceDetector == null || initializationFailed) {
+                    log.error("Face detector is not initialized or failed to initialize. Cannot detect faces.");
+                    return detectionsList;
+                }
+                faceDetector.setInput(blob);
+                detections = faceDetector.forward();
+            }
+
+            long[] sizes = detections.createIndexer().sizes();
+            for (int i = 0; i < sizes[2]; i++) {
+                try (FloatPointer data = new FloatPointer(detections.ptr(0, 0, i))) {
+                    float confidence = data.get(2);
+
+                    if (confidence > FACE_DETECTION_CONFIDENCE) {
+                        int x = (int) (data.get(3) * image.cols());
+                        int y = (int) (data.get(4) * image.rows());
+                        int width = (int) (data.get(5) * image.cols() - x);
+                        int height = (int) (data.get(6) * image.rows() - y);
+
+                        // Optimized bound checking
+                        x = Math.max(0, x);
+                        y = Math.max(0, y);
+                        width = Math.min(width, image.cols() - x);
+                        height = Math.min(height, image.rows() - y);
+
+                        // Reduced size threshold for better detection
+                        if (width > FACE_SIZE_THRESHOLD && height > FACE_SIZE_THRESHOLD) {
+                            detectionsList.add(new Rect(x, y, width, height));
+                        }
+                    }
+                }
+            }
+
+            // Sort by area (width * height) descending - optimized
+            detectionsList.sort((r1, r2) -> Integer.compare(r2.width() * r2.height(), r1.width() * r1.height()));
+
+            return detectionsList;
+        } catch (Exception e) {
+            log.error("Error during optimized face detection: {}", e.getMessage());
+            return detectionsList;
+        } finally {
+            if (detections != null)
+                detections.release();
+            if (blob != null)
+                blob.release();
+        }
+    }
+
+    /**
+     * Fast liveness detection for real-time performance
+     */
+    private double calculateLivenessFast(Mat face) {
+        Mat gray = new Mat();
+        Mat laplacian = new Mat();
+        try {
+            // Simplified liveness detection - focus on blur detection only
+            opencv_imgproc.cvtColor(face, gray, opencv_imgproc.COLOR_BGR2GRAY);
+            opencv_imgproc.Laplacian(gray, laplacian, opencv_core.CV_64F);
+            
+            Mat mean = new Mat();
+            Mat stddev = new Mat();
+            opencv_core.meanStdDev(laplacian, mean, stddev);
+            double textureScore = Math.pow(stddev.createIndexer().getDouble(0), 2);
+            
+            return textureScore;
+        } catch (Exception e) {
+            log.error("Error in fast liveness calculation: {}", e.getMessage());
+            return 0.0;
+        } finally {
+            gray.release();
+            laplacian.release();
+        }
+    }
+
+    /**
+     * Fast emotion detection for real-time performance
+     */
+    private String detectEmotionFast(Mat face) {
+        Mat gray = new Mat();
+        try {
+            opencv_imgproc.cvtColor(face, gray, opencv_imgproc.COLOR_BGR2GRAY);
+            
+            // Simplified emotion detection based on intensity
+            Mat mean = new Mat();
+            Mat stddev = new Mat();
+            opencv_core.meanStdDev(gray, mean, stddev);
+            
+            double avgIntensity = mean.createIndexer().getDouble(0);
+            double variance = Math.pow(stddev.createIndexer().getDouble(0), 2);
+            
+            // Simplified emotion logic
+            if (variance > 2500) return "Expressive";
+            if (avgIntensity > 180) return "Surprised";
+            if (avgIntensity < 80) return "Serious";
+            return "Neutral";
+        } catch (Exception e) {
+            return "Neutral";
+        } finally {
+            gray.release();
         }
     }
 
