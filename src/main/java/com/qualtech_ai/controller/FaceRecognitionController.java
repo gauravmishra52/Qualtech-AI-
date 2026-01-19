@@ -76,4 +76,26 @@ public class FaceRecognitionController {
                 .contentType(MediaType.IMAGE_JPEG)
                 .body(processedImage);
     }
+
+    @PostMapping(value = "/verify-stream", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<FaceVerificationResponse> verifyFaceStream(
+            @RequestParam("image") MultipartFile image,
+            @RequestParam(value = "provider", required = false, defaultValue = "LOCAL") com.qualtech_ai.enums.FaceProvider provider,
+            @RequestParam(value = "live", required = false, defaultValue = "true") boolean live)
+            throws IOException {
+        
+        // Stream mode - optimized for real-time performance
+        FaceVerificationRequest request = new FaceVerificationRequest();
+        request.setImage(image);
+        request.setProvider(provider);
+        request.setLive(live);
+
+        FaceVerificationResponse response = faceRecognitionService.verifyFaceStream(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/status")
+    public ResponseEntity<?> getSystemStatus() {
+        return ResponseEntity.ok(faceRecognitionService.getSystemStatus());
+    }
 }

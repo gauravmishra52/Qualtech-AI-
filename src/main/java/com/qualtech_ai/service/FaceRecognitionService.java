@@ -8,6 +8,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 public interface FaceRecognitionService {
     /**
@@ -23,6 +24,13 @@ public interface FaceRecognitionService {
      * @return Verification response with match details
      */
     FaceVerificationResponse verifyFace(FaceVerificationRequest request) throws IOException;
+    
+    /**
+     * Verify a face in stream mode - optimized for real-time performance
+     * @param request The verification request containing the face image
+     * @return Fast verification response with match details
+     */
+    FaceVerificationResponse verifyFaceStream(FaceVerificationRequest request) throws IOException;
     
     /**
      * Get all registered face users
@@ -42,4 +50,10 @@ public interface FaceRecognitionService {
      * @return The processed image with face detection
      */
     byte[] processImage(MultipartFile imageFile) throws IOException;
+    
+    /**
+     * Get system status including model loading state
+     * @return System status information
+     */
+    Map<String, Object> getSystemStatus();
 }

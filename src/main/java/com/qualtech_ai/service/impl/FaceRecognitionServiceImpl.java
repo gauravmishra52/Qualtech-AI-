@@ -41,6 +41,8 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
 
 import static org.bytedeco.opencv.global.opencv_core.CV_32F;
 import static org.bytedeco.opencv.global.opencv_dnn.blobFromImage;
@@ -74,9 +76,28 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     private final AzureFaceService azureFaceService;
     private final FaceVerificationLogRepository faceVerificationLogRepository;
 
-    // DNN-based face detector
+    // DNN-based face detector - Pre-initialized for performance
     private Net faceDetector;
     private boolean initializationFailed = false;
+    private volatile boolean modelLoaded = false;
+    
+    // Pre-load models on startup
+    @jakarta.annotation.PostConstruct
+    public void initializeModels() {
+        log.info("Pre-loading face detection models for optimal performance...");
+        Thread modelLoader = new Thread(() -> {
+            try {
+                initializeFaceDetector();
+                modelLoaded = true;
+                log.info("Face detection models loaded successfully - Ready for real-time detection!");
+            } catch (Exception e) {
+                log.error("Failed to pre-load face detection models: {}", e.getMessage());
+                initializationFailed = true;
+            }
+        });
+        modelLoader.setDaemon(true);
+        modelLoader.start();
+    }
 
     @Override
     @Transactional
@@ -789,7 +810,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     /**
      * Convert Base64 encoded string back to feature vector
      */
-    private static final double LIVENESS_THRESHOLD = 100.0; // Increased threshold for better spoof detection
 
     /**
      * Calculate liveness using Laplacian Variance (Blur detection)
@@ -1207,5 +1227,146 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         }
         
         return message.toString();
+    }
+
+    @Override
+    public FaceVerificationResponse verifyFaceStream(FaceVerificationRequest request) throws IOException {
+        // Optimized stream mode - skip logging for performance
+        Mat image = null;
+        File tempFile = null;
+
+        try {
+            // Read bytes once
+            byte[] imageBytes = request.getImage().getBytes();
+
+            // Create temp file
+            String originalName = request.getImage().getOriginalFilename();
+            String extension = ".jpg";
+            if (originalName != null && originalName.contains(".")) {
+                extension = originalName.substring(originalName.lastIndexOf("."));
+            }
+            tempFile = Files.createTempFile("stream_" + UUID.randomUUID() + "_", extension).toFile();
+
+            try (var is = new java.io.ByteArrayInputStream(imageBytes)) {
+                Files.copy(is, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            image = opencv_imgcodecs.imread(tempFile.getAbsolutePath(), IMREAD_COLOR);
+            if (image == null || image.empty()) {
+                return FaceVerificationResponse.failure("Could not load image for streaming verification");
+            }
+
+            int width = image.cols();
+            int height = image.rows();
+
+            if (request.getProvider() == FaceProvider.AWS && awsFaceService.isAvailable()) {
+                return verifyFaceAws(request, imageBytes, image, width, height);
+            } else if (request.getProvider() == FaceProvider.AZURE && azureFaceService.isAvailable()) {
+                return verifyFaceAzure(request, imageBytes, image);
+            }
+
+            // Fast local processing for stream mode
+            if (faceDetector == null && !initializationFailed) {
+                initializeFaceDetector();
+            }
+
+            if (faceDetector == null) {
+                return FaceVerificationResponse.failure("Face detection service is currently unavailable.");
+            }
+
+            // Use optimized detection
+            List<Rect> faceRects = detectFacesOptimized(image);
+            if (faceRects.isEmpty()) {
+                return FaceVerificationResponse.failure("No faces detected");
+            }
+
+            // Limit to largest face for stream performance
+            if (faceRects.size() > 1) {
+                faceRects = faceRects.subList(0, 1);
+            }
+
+            List<FaceDetectionResult> detections = new ArrayList<>();
+            List<FaceUser> allUsers = faceUserRepository.findAll();
+
+            for (Rect rect : faceRects) {
+                Mat faceRoi = null;
+                Mat resizedFace = null;
+                try {
+                    faceRoi = new Mat(image, rect);
+                    resizedFace = new Mat();
+                    opencv_imgproc.resize(faceRoi, resizedFace, new Size(160, 160));
+
+                    float[] features = extractFeatureVector(resizedFace);
+                    String embedding = featuresToString(features);
+
+                    // Fast liveness and emotion
+                    double livenessScore = calculateLivenessFast(resizedFace);
+                    boolean isLive = livenessScore > LIVENESS_THRESHOLD;
+                    String emotion = detectEmotionFast(resizedFace);
+
+                    // Quick identity match
+                    double maxSimilarity = -1;
+                    FaceUser matchedUser = null;
+
+                    for (FaceUser user : allUsers) {
+                        double similarity = compareFaceEmbeddings(embedding, user.getFaceEmbedding());
+                        if (similarity > maxSimilarity) {
+                            maxSimilarity = similarity;
+                            matchedUser = user;
+                        }
+                    }
+
+                    boolean authorized = maxSimilarity >= FACE_MATCH_THRESHOLD && isLive;
+
+                    detections.add(FaceDetectionResult.builder()
+                            .x(rect.x())
+                            .y(rect.y())
+                            .width(rect.width())
+                            .height(rect.height())
+                            .authorized(authorized)
+                            .user(authorized ? matchedUser : null)
+                            .confidence(maxSimilarity)
+                            .isLive(isLive)
+                            .livenessScore(livenessScore)
+                            .emotion(emotion)
+                            .age("N/A")
+                            .moving(false)
+                            .build());
+
+                } finally {
+                    if (faceRoi != null) faceRoi.release();
+                    if (resizedFace != null) resizedFace.release();
+                }
+            }
+
+            return FaceVerificationResponse.success(detections);
+
+        } catch (Exception e) {
+            log.error("Stream verification error: {}", e.getMessage());
+            return FaceVerificationResponse.failure("Stream verification failed: " + e.getMessage());
+        } finally {
+            if (image != null) image.release();
+            if (tempFile != null && tempFile.exists()) {
+                tempFile.delete();
+            }
+        }
+    }
+
+    @Override
+    public Map<String, Object> getSystemStatus() {
+        Map<String, Object> status = new HashMap<>();
+        
+        status.put("modelLoaded", modelLoaded);
+        status.put("initializationFailed", initializationFailed);
+        status.put("awsAvailable", awsFaceService.isAvailable());
+        status.put("azureAvailable", azureFaceService.isAvailable());
+        status.put("totalRegisteredUsers", faceUserRepository.count());
+        status.put("faceMatchThreshold", FACE_MATCH_THRESHOLD);
+        status.put("livenessThreshold", LIVENESS_THRESHOLD);
+        status.put("detectionConfidence", FACE_DETECTION_CONFIDENCE);
+        status.put("maxFacesToProcess", MAX_FACES_TO_PROCESS);
+        status.put("faceSizeThreshold", FACE_SIZE_THRESHOLD);
+        
+        return status;
     }
 }
