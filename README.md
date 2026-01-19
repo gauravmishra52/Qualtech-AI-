@@ -23,6 +23,7 @@ A full-stack web application featuring secure authentication with JWT, email ver
 ## 🛠️ Tech Stack
 
 ### Backend
+
 | Technology | Purpose |
 |------------|---------|
 | **Java 21** | Core language |
@@ -34,20 +35,20 @@ A full-stack web application featuring secure authentication with JWT, email ver
 | **JWT (jjwt 0.12.7)** | Token-based authentication |
 | **Lombok** | Boilerplate code reduction |
 
-### Frontend
+### Frontend (Served by Spring Boot)
+
 | Technology | Purpose |
 |------------|---------|
-| **React 18** | UI framework |
-| **Chakra UI** | Component library |
-| **React Router 6** | Navigation |
-| **Axios** | HTTP client |
-| **Framer Motion** | Animations |
+| **HTML5/Thymeleaf** | Structure & Templating |
+| **Bootstrap 5** | Styling & UI Components |
+| **Vanilla JS** | Client-side Logic |
+| **Axios/Fetch** | API calls |
+| **Face-api.js/OpenCV** | Client-side face handling |
 
 ---
 
 ## 📁 Project Structure
 
-```
 qualtech-ai/
 ├── src/main/java/com/qualtech_ai/
 │   ├── config/           # Security, CORS, JWT, Mail configs
@@ -61,16 +62,14 @@ qualtech-ai/
 │   └── util/             # Utility classes
 ├── src/main/resources/
 │   ├── application.yml   # Application configuration
-│   └── db/migration/     # Flyway SQL migrations
-├── frontend/
-│   ├── src/
-│   │   ├── api/          # API service calls
-│   │   ├── components/   # Reusable React components
-│   │   ├── hooks/        # Custom React hooks
-│   │   ├── pages/        # Page components (Login, Register, etc.)
-│   │   └── utils/        # Utility functions
-│   └── package.json
+│   ├── db/migration/     # Flyway SQL migrations
+│   ├── face_models/      # Deep learning models for face detection
+│   └── static/           # Frontend assets (HTML, CSS, JS)
+│       ├── css/
+│       ├── js/
+│       └── *.html
 └── pom.xml
+
 ```
 
 ---
@@ -126,29 +125,15 @@ spring:
 
 > **Note:** For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) instead of your regular password.
 
-### 4. Run the Backend
+### 4. Run the Application
 
 ```bash
 # From project root
-mvn spring-boot:run
+./mvnw spring-boot:run
 ```
 
-The backend will start at `http://localhost:8080`
-
-### 5. Run the Frontend
-
-```bash
-# Navigate to frontend directory
-cd frontend
-
-# Install dependencies
-npm install
-
-# Start development server
-npm start
-```
-
-The frontend will start at `http://localhost:3000`
+The application will start at `http://localhost:8080`.
+The frontend is served directly from the backend at the same URL.
 
 ---
 
@@ -169,6 +154,7 @@ The frontend will start at `http://localhost:3000`
 ### Request Examples
 
 **Register:**
+
 ```json
 POST /api/auth/register
 {
@@ -179,6 +165,7 @@ POST /api/auth/register
 ```
 
 **Login:**
+
 ```json
 POST /api/auth/login
 {
@@ -188,6 +175,7 @@ POST /api/auth/login
 ```
 
 **Response:**
+
 ```json
 {
   "token": "eyJhbGciOiJIUzI1...",
@@ -206,12 +194,14 @@ POST /api/auth/login
 To test from other devices on your network:
 
 1. Find your computer's IP address:
+
    ```bash
    ipconfig  # Windows
    ifconfig  # macOS/Linux
    ```
 
 2. Update `application.yml`:
+
    ```yaml
    app:
      frontend-url: http://YOUR_IP:3000
@@ -226,11 +216,13 @@ To test from other devices on your network:
 ## 🧪 Testing
 
 ### Backend Tests
+
 ```bash
 mvn test
 ```
 
 ### Frontend Tests
+
 ```bash
 cd frontend
 npm test
@@ -241,12 +233,14 @@ npm test
 ## 📦 Build for Production
 
 ### Backend
+
 ```bash
 mvn clean package -DskipTests
 java -jar target/qualtech-ai-0.0.1-SNAPSHOT.jar
 ```
 
 ### Frontend
+
 ```bash
 cd frontend
 npm run build

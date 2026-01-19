@@ -35,7 +35,7 @@ public class VideoAnalysisService {
     private final AzureBlobService azureBlobService;
     private final AzureSpeechService azureSpeechService;
 
-    @Value("${aws.s3.bucket}")
+    @Value("${aws.s3.bucket:}")
     private String bucketName;
 
     @Value("${analysis.provider:aws}")
@@ -47,9 +47,12 @@ public class VideoAnalysisService {
 
     private static final Logger log = LoggerFactory.getLogger(VideoAnalysisService.class);
 
-    public VideoAnalysisService(S3Client s3Client, TranscribeClient transcribeClient,
-            SentimentAnalysisService sentimentAnalysisService, AzureBlobService azureBlobService,
-            AzureSpeechService azureSpeechService) {
+    public VideoAnalysisService(
+            @org.springframework.beans.factory.annotation.Autowired(required = false) S3Client s3Client,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) TranscribeClient transcribeClient,
+            SentimentAnalysisService sentimentAnalysisService,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) AzureBlobService azureBlobService,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) AzureSpeechService azureSpeechService) {
         this.s3Client = s3Client;
         this.transcribeClient = transcribeClient;
         this.sentimentAnalysisService = sentimentAnalysisService;

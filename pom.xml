@@ -5,9 +5,10 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.10</version>
+        <version>3.5.9</version>
         <relativePath/>
     </parent>
+
 
     <groupId>com.qualtech</groupId>
     <artifactId>qualtech-ai</artifactId>
@@ -156,6 +157,11 @@
             <artifactId>transcribe</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>rekognition</artifactId>
+        </dependency>
+
         <!-- Azure Services -->
         <dependency>
             <groupId>com.azure</groupId>
@@ -164,6 +170,12 @@
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-ai-textanalytics</artifactId>
+        </dependency>
+        <!-- Azure Face API -->
+        <dependency>
+            <groupId>com.azure</groupId>
+            <artifactId>azure-ai-vision-face</artifactId>
+            <version>1.0.0-beta.2</version>
         </dependency>
         <dependency>
             <groupId>com.microsoft.cognitiveservices.speech</groupId>
@@ -191,6 +203,13 @@
             <groupId>org.bytedeco</groupId>
             <artifactId>opencv-platform</artifactId>
             <version>4.9.0-1.5.10</version>
+        </dependency>
+
+        <!-- Dotenv for loading .env files -->
+        <dependency>
+            <groupId>me.paulschwarz</groupId>
+            <artifactId>spring-dotenv</artifactId>
+            <version>4.0.0</version>
         </dependency>
 
         <!-- For handling multipart file uploads -->

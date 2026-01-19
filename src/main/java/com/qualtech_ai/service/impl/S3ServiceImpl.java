@@ -18,9 +18,10 @@ public class S3ServiceImpl implements S3Service {
     private final String bucketName;
     private final String region;
 
-    public S3ServiceImpl(S3Client s3Client,
-                        @Value("${aws.s3.bucket-name}") String bucketName,
-                        @Value("${aws.region}") String region) {
+    public S3ServiceImpl(
+            @org.springframework.beans.factory.annotation.Autowired(required = false) S3Client s3Client,
+            @Value("${aws.s3.bucket-name:}") String bucketName,
+            @Value("${aws.region:us-east-1}") String region) {
         this.s3Client = s3Client;
         this.bucketName = bucketName;
         this.region = region;
@@ -37,7 +38,7 @@ public class S3ServiceImpl implements S3Service {
                     .build();
 
             s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(inputStream, file.getSize()));
-            
+
             return String.format("https://%s.s3.%s.amazonaws.com/%s", bucketName, region, key);
         }
     }
@@ -49,7 +50,7 @@ public class S3ServiceImpl implements S3Service {
                     .bucket(bucketName)
                     .key(key)
                     .build();
-            
+
             s3Client.deleteObject(deleteObjectRequest);
         } catch (S3Exception e) {
             throw new RuntimeException("Error deleting file from S3: " + e.getMessage(), e);

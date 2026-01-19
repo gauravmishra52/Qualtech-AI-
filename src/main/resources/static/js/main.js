@@ -1,12 +1,12 @@
 // Wait for the DOM to be fully loaded
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Smooth scrolling for navigation links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', function (e) {
             e.preventDefault();
             const targetId = this.getAttribute('href');
             if (targetId === '#') return;
-            
+
             const targetElement = document.querySelector(targetId);
             if (targetElement) {
                 window.scrollTo({
@@ -20,22 +20,22 @@ document.addEventListener('DOMContentLoaded', function() {
     // Handle contact form submission
     const contactForm = document.getElementById('contactForm');
     if (contactForm) {
-        contactForm.addEventListener('submit', async function(e) {
+        contactForm.addEventListener('submit', async function (e) {
             e.preventDefault();
-            
+
             const submitButton = this.querySelector('button[type="submit"]');
             const originalButtonText = submitButton.innerHTML;
-            
+
             try {
                 // Disable button and show loading state
                 submitButton.disabled = true;
                 submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sending...';
-                
+
                 // Get form data
                 const formData = {
-                    name: document.getElementById('name').value.trim(),
-                    email: document.getElementById('email').value.trim(),
-                    message: document.getElementById('message').value.trim()
+                    name: document.getElementById('contactName').value.trim(),
+                    email: document.getElementById('contactEmail').value.trim(),
+                    message: document.getElementById('contactMessage').value.trim()
                 };
 
                 // Simple client-side validation
@@ -60,7 +60,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Show success message
                 showAlert('Message sent successfully! We will get back to you soon.', 'success');
-                
+
                 // Reset form
                 contactForm.reset();
             } catch (error) {
@@ -108,7 +108,7 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.forEach(element => {
             const elementPosition = element.getBoundingClientRect().top;
             const screenPosition = window.innerHeight / 1.3;
-            
+
             if (elementPosition < screenPosition) {
                 element.classList.add('animate-fade-in');
             }
@@ -122,14 +122,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add active class to current nav item
     const sections = document.querySelectorAll('section');
     const navItems = document.querySelectorAll('.nav-link');
-    
+
     window.addEventListener('scroll', () => {
         let current = '';
-        
+
         sections.forEach(section => {
             const sectionTop = section.offsetTop;
             const sectionHeight = section.clientHeight;
-            
+
             if (pageYOffset >= (sectionTop - 200)) {
                 current = section.getAttribute('id');
             }

@@ -29,25 +29,30 @@ public class FaceRecognitionController {
             @RequestParam(value = "department", required = false) String department,
             @RequestParam(value = "position", required = false) String position,
             @RequestParam("image") MultipartFile image) throws IOException {
-        
+
         FaceRegistrationRequest request = new FaceRegistrationRequest();
         request.setName(name);
         request.setEmail(email);
         request.setDepartment(department);
         request.setPosition(position);
         request.setImage(image);
-        
+
         FaceUser registeredUser = faceRecognitionService.registerFace(request);
         return new ResponseEntity<>(registeredUser, HttpStatus.CREATED);
     }
 
     @PostMapping(value = "/verify", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<FaceVerificationResponse> verifyFace(
-            @RequestParam("image") MultipartFile image) throws IOException {
-        
+            @RequestParam("image") MultipartFile image,
+            @RequestParam(value = "provider", required = false, defaultValue = "LOCAL") com.qualtech_ai.enums.FaceProvider provider,
+            @RequestParam(value = "live", required = false, defaultValue = "false") boolean live)
+            throws IOException {
+
         FaceVerificationRequest request = new FaceVerificationRequest();
         request.setImage(image);
-        
+        request.setProvider(provider);
+        request.setLive(live);
+
         FaceVerificationResponse response = faceRecognitionService.verifyFace(request);
         return ResponseEntity.ok(response);
     }

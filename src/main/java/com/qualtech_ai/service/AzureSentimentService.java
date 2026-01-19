@@ -4,6 +4,7 @@ import com.azure.ai.textanalytics.TextAnalyticsClient;
 import com.azure.ai.textanalytics.models.DocumentSentiment;
 import com.azure.ai.textanalytics.models.SentimentConfidenceScores;
 import com.qualtech_ai.dto.SentimentResponse;
+import com.qualtech_ai.exception.AzureServiceException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -17,13 +18,18 @@ public class AzureSentimentService {
     private static final Logger log = LoggerFactory.getLogger(AzureSentimentService.class);
     private final TextAnalyticsClient textAnalyticsClient;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     public AzureSentimentService(TextAnalyticsClient textAnalyticsClient) {
         this.textAnalyticsClient = textAnalyticsClient;
     }
 
+    public AzureSentimentService() {
+        this.textAnalyticsClient = null;
+    }
+
     public SentimentResponse analyzeSentiment(String text) {
         if (textAnalyticsClient == null) {
-            throw new RuntimeException("Azure Text Analytics is not configured.");
+            throw new AzureServiceException("Text Analytics", "sentiment", "Azure Text Analytics is not configured.");
         }
 
         if (text == null || text.isBlank()) {
@@ -59,12 +65,14 @@ public class AzureSentimentService {
                 count++;
             } catch (Exception e) {
                 log.error("Azure Sentiment Error on chunk: {}", e.getMessage(), e);
-                throw new RuntimeException("Azure Sentiment Error on chunk: " + e.getMessage(), e);
+                throw new AzureServiceException("Text Analytics", "sentiment", 
+                    "Sentiment analysis failed on chunk: " + e.getMessage(), e);
             }
         }
 
         if (count == 0)
-            throw new RuntimeException("No Azure sentiment data could be analyzed");
+            throw new AzureServiceException("Text Analytics", "sentiment", 
+                "No sentiment data could be analyzed - all chunks failed");
 
         Map<String, Float> scoreMap = new HashMap<>();
         scoreMap.put("Positive", (float) (totalPositive / count));

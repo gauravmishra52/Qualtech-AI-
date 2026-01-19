@@ -4,12 +4,16 @@ import com.qualtech_ai.dto.FaceRegistrationRequest;
 import com.qualtech_ai.dto.FaceVerificationRequest;
 import com.qualtech_ai.dto.FaceVerificationResponse;
 import com.qualtech_ai.dto.FaceDetectionResult;
+import com.qualtech_ai.dto.AdvancedFaceAnalysisResult;
+import com.qualtech_ai.dto.AdvancedFaceDetail;
 import com.qualtech_ai.service.S3Service;
 import com.qualtech_ai.entity.FaceUser;
 import com.qualtech_ai.exception.ResourceNotFoundException;
 import com.qualtech_ai.repository.FaceUserRepository;
 import com.qualtech_ai.service.FaceRecognitionService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.bytedeco.javacpp.BytePointer;
 import org.bytedeco.javacpp.FloatPointer;
 import org.bytedeco.opencv.global.opencv_core;
 import org.bytedeco.opencv.global.opencv_dnn;
@@ -22,15 +26,21 @@ import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import com.qualtech_ai.enums.FaceProvider;
+import com.qualtech_ai.repository.FaceVerificationLogRepository;
+import java.util.concurrent.atomic.AtomicReference;
+import com.qualtech_ai.service.AwsFaceService;
+import com.qualtech_ai.service.AzureFaceService;
+import com.qualtech_ai.entity.FaceVerificationLog;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.UUID;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Objects;
 
 import static org.bytedeco.opencv.global.opencv_core.CV_32F;
 import static org.bytedeco.opencv.global.opencv_dnn.blobFromImage;
@@ -38,6 +48,7 @@ import static org.bytedeco.opencv.global.opencv_imgcodecs.IMREAD_COLOR;
 
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     private static final double FACE_MATCH_THRESHOLD = 0.6; // Cosine similarity threshold
     private static final double FACE_DETECTION_CONFIDENCE = 0.5; // Minimum confidence for face detection
@@ -54,18 +65,13 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     private final FaceUserRepository faceUserRepository;
     private final S3Service s3Service;
     private final ResourceLoader resourceLoader;
-
-    public FaceRecognitionServiceImpl(
-            FaceUserRepository faceUserRepository,
-            S3Service s3Service,
-            ResourceLoader resourceLoader) {
-        this.faceUserRepository = faceUserRepository;
-        this.s3Service = s3Service;
-        this.resourceLoader = resourceLoader;
-    }
+    private final AwsFaceService awsFaceService;
+    private final AzureFaceService azureFaceService;
+    private final FaceVerificationLogRepository faceVerificationLogRepository;
 
     // DNN-based face detector
     private Net faceDetector;
+    private boolean initializationFailed = false;
 
     @Override
     @Transactional
@@ -78,9 +84,27 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         // Process the image and extract face features
         String faceEmbedding = extractFaceFeatures(request.getImage());
 
-        // Upload image to S3
-        String s3Key = s3Service.generateS3Key("faces", request.getImage().getOriginalFilename());
-        String imageUrl = s3Service.uploadFile(request.getImage(), s3Key);
+        // Upload image to S3 (if configured)
+        String imageUrl = null;
+        String s3Key = null;
+        if (s3Service != null) {
+            try {
+                s3Key = s3Service.generateS3Key("faces", request.getImage().getOriginalFilename());
+                imageUrl = s3Service.uploadFile(request.getImage(), s3Key);
+            } catch (Exception e) {
+                log.warn("Failed to upload face image to S3, proceeding with local-only storage: {}", e.getMessage());
+            }
+        }
+
+        // Convert image to Base64 for easy retrieval and display
+        String imageData = null;
+        try {
+            byte[] imageBytes = request.getImage().getBytes();
+            imageData = "data:" + request.getImage().getContentType() + ";base64,"
+                    + java.util.Base64.getEncoder().encodeToString(imageBytes);
+        } catch (IOException e) {
+            log.warn("Failed to encode image as Base64: {}", e.getMessage());
+        }
 
         // Save user to database
         FaceUser user = new FaceUser();
@@ -89,10 +113,23 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         user.setFaceEmbedding(faceEmbedding);
         user.setImageUrl(imageUrl);
         user.setS3Key(s3Key);
+        user.setImageData(imageData);
         user.setDepartment(request.getDepartment());
         user.setPosition(request.getPosition());
 
-        return faceUserRepository.save(user);
+        FaceUser savedUser = faceUserRepository.save(user);
+
+        // Index in AWS if available
+        if (awsFaceService.isAvailable()) {
+            try {
+                awsFaceService.indexFace(request.getImage().getBytes(), savedUser.getId());
+                log.info("Successfully indexed face in AWS for user: {}", savedUser.getName());
+            } catch (Exception e) {
+                log.warn("Failed to index face in AWS Rekognition: {}", e.getMessage());
+            }
+        }
+
+        return savedUser;
     }
 
     @Override
@@ -103,12 +140,19 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         try {
             log.info("Processing multi-person verification request");
 
-            // Prepare temporary file for OpenCV
-            String safeFilename = Objects.toString(request.getImage().getOriginalFilename(), "unknown")
-                    .replaceAll("[^a-zA-Z0-9.-]", "_");
-            tempFile = new File(System.getProperty("java.io.tmpdir"),
-                    "verify_" + System.currentTimeMillis() + "_" + safeFilename);
-            try (var is = request.getImage().getInputStream()) {
+            // Read bytes once to avoid stream consumption issues
+            byte[] imageBytes = request.getImage().getBytes();
+
+            // Prepare temporary file for OpenCV - Use UUID for absolute uniqueness in
+            // multi-threaded environments
+            String originalName = request.getImage().getOriginalFilename();
+            String extension = ".jpg";
+            if (originalName != null && originalName.contains(".")) {
+                extension = originalName.substring(originalName.lastIndexOf("."));
+            }
+            tempFile = Files.createTempFile("verify_" + UUID.randomUUID() + "_", extension).toFile();
+
+            try (var is = new java.io.ByteArrayInputStream(imageBytes)) {
                 Files.copy(is, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
 
@@ -117,8 +161,27 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 throw new IOException("Could not load image for verification");
             }
 
-            if (faceDetector == null) {
+            int width = image.cols();
+            int height = image.rows();
+
+            if (request.getProvider() == FaceProvider.AWS) {
+                if (!awsFaceService.isAvailable()) {
+                    return FaceVerificationResponse.failure("AWS Rekognition provider is not configured.");
+                }
+                return verifyFaceAws(request, imageBytes, image, width, height);
+            } else if (request.getProvider() == FaceProvider.AZURE) {
+                if (!azureFaceService.isAvailable()) {
+                    return FaceVerificationResponse.failure("Azure Face provider is not configured.");
+                }
+                return verifyFaceAzure(request, imageBytes, image);
+            }
+
+            if (faceDetector == null && !initializationFailed) {
                 initializeFaceDetector();
+            }
+
+            if (faceDetector == null) {
+                return FaceVerificationResponse.failure("Face detection service is currently unavailable.");
             }
 
             // Detect ALL faces in the frame
@@ -141,6 +204,13 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                     float[] features = extractFeatureVector(resizedFace);
                     String embedding = featuresToString(features);
 
+                    // NEW: Calculate Liveness, Emotion, and Motion first
+                    double livenessScore = calculateLiveness(resizedFace);
+                    boolean isLive = livenessScore > LIVENESS_THRESHOLD;
+                    String emotion = detectEmotion(resizedFace);
+                    String age = "N/A"; // Local model doesn't support age yet
+                    boolean isMoving = false; // Initial state
+
                     // Identify the person
                     double maxSimilarity = -1;
                     FaceUser matchedUser = null;
@@ -153,28 +223,33 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                         }
                     }
 
-                    boolean isAuthorized = maxSimilarity >= FACE_MATCH_THRESHOLD;
-
-                    // NEW: Calculate Liveness, Emotion, and Motion
-                    double livenessScore = calculateLiveness(resizedFace);
-                    boolean isLive = livenessScore > 10.0; // Threshold for Laplacian variance
-                    String emotion = detectEmotion(resizedFace);
-                    boolean isMoving = false; // Initial state, will be updated by client-side tracking or temporal
-                                              // check if state persisted
+                    boolean authorized = maxSimilarity >= FACE_MATCH_THRESHOLD && isLive;
 
                     detections.add(FaceDetectionResult.builder()
                             .x(rect.x())
                             .y(rect.y())
                             .width(rect.width())
                             .height(rect.height())
-                            .authorized(isAuthorized)
-                            .user(isAuthorized ? matchedUser : null)
+                            .authorized(authorized)
+                            .user(authorized ? matchedUser : null)
                             .confidence(maxSimilarity)
                             .isLive(isLive)
                             .livenessScore(livenessScore)
                             .emotion(emotion)
+                            .age(age)
                             .moving(isMoving)
                             .build());
+
+                    // Log the verification attempt
+                    if (!request.isLive()) {
+                        logVerification(authorized && matchedUser != null ? matchedUser.getId() : null,
+                                FaceProvider.LOCAL,
+                                authorized,
+                                maxSimilarity,
+                                emotion,
+                                age,
+                                isLive);
+                    }
 
                 } finally {
                     if (faceRoi != null)
@@ -209,9 +284,13 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         FaceUser user = faceUserRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + id));
 
-        // Delete the image from S3
-        if (user.getS3Key() != null) {
-            s3Service.deleteFile(user.getS3Key());
+        // Delete the image from S3 (if it exists)
+        if (user.getS3Key() != null && s3Service != null) {
+            try {
+                s3Service.deleteFile(user.getS3Key());
+            } catch (Exception e) {
+                log.warn("Failed to delete face image from S3: {}", e.getMessage());
+            }
         }
 
         // Delete the user from the database
@@ -220,10 +299,52 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
     @Override
     public byte[] processImage(MultipartFile imageFile) throws IOException {
-        // This is a placeholder for image processing logic
-        // In a real implementation, you might want to detect faces, draw bounding
-        // boxes, etc.
-        return imageFile.getBytes();
+        if (imageFile == null || imageFile.isEmpty()) {
+            return new byte[0];
+        }
+
+        Mat image = null;
+        File tempFile = null;
+        try {
+            tempFile = new File(System.getProperty("java.io.tmpdir"), "process_" + System.currentTimeMillis() + ".jpg");
+            try (var is = imageFile.getInputStream()) {
+                Files.copy(is, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            image = opencv_imgcodecs.imread(tempFile.getAbsolutePath());
+            if (image == null || image.empty()) {
+                return imageFile.getBytes();
+            }
+
+            // Detect faces to verify system is working
+            if (faceDetector == null && !initializationFailed) {
+                initializeFaceDetector();
+            }
+            if (initializationFailed) {
+                log.warn("Skipping local face detection for image processing due to initialization failure.");
+                return imageFile.getBytes(); // Return original image if detector failed
+            }
+
+            List<Rect> faceRects = detectFaces(image);
+
+            // Draw boxes just for debug/verification
+            for (Rect rect : faceRects) {
+                opencv_imgproc.rectangle(image, rect, new Scalar(0, 255, 0, 0), 2, 8, 0);
+            }
+
+            byte[] result;
+            try (BytePointer ptr = new BytePointer()) {
+                opencv_imgcodecs.imencode(".jpg", image, ptr);
+                result = new byte[(int) ptr.limit()];
+                ptr.get(result);
+            }
+            return result;
+        } finally {
+            if (image != null)
+                image.release();
+            if (tempFile != null && tempFile.exists())
+                tempFile.delete();
+        }
     }
 
     /**
@@ -240,29 +361,30 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         File tempFile = null;
 
         try {
-            // Create a temporary file with null-safe filename
-            String safeFilename = Objects.toString(imageFile.getOriginalFilename(), "unknown")
-                    .replaceAll("[^a-zA-Z0-9.-]", "_"); // Sanitize filename
-            tempFile = new File(System.getProperty("java.io.tmpdir"),
-                    "face_" + System.currentTimeMillis() + "_" + safeFilename);
-            // Ensure parent directory exists
-            File parent = tempFile.getParentFile();
-            if (parent != null) {
-                parent.mkdirs();
+            // Create a temporary file using secure createTempFile and UUID
+            String originalName = imageFile.getOriginalFilename();
+            String extension = ".jpg";
+            if (originalName != null && originalName.contains(".")) {
+                extension = originalName.substring(originalName.lastIndexOf("."));
             }
+            tempFile = Files.createTempFile("face_" + UUID.randomUUID() + "_", extension).toFile();
+
             try (var is = imageFile.getInputStream()) {
                 Files.copy(is, tempFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
 
             // Read the image using OpenCV
-            image = opencv_imgcodecs.imread(tempFile.getAbsolutePath(), IMREAD_COLOR);
+            image = opencv_imgcodecs.imread(tempFile.getAbsolutePath(), opencv_imgcodecs.IMREAD_COLOR);
             if (image == null || image.empty()) {
                 throw new IOException("Could not load image or image is empty");
             }
 
             // Initialize face detector if needed
-            if (faceDetector == null) {
+            if (faceDetector == null && !initializationFailed) {
                 initializeFaceDetector();
+            }
+            if (initializationFailed) {
+                throw new IOException("Face detection service is not available due to initialization failure.");
             }
 
             // Detect faces in the image
@@ -313,7 +435,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
      * Initialize the DNN-based face detector
      */
     private synchronized void initializeFaceDetector() {
-        if (faceDetector != null)
+        if (faceDetector != null || initializationFailed)
             return;
 
         try {
@@ -345,10 +467,9 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             System.err.println("--- NATIVE AI INITIALIZATION SUCCESS ---");
             log.info("SUCCESS: Loaded face detection model");
         } catch (Throwable t) {
-            System.err.println("--- CRITICAL NATIVE ERROR ---");
-            t.printStackTrace(System.err);
-            log.error("CRITICAL: Failed to initialize face detector: {}", t.getMessage(), t);
-            // Don't throw - allow app to run, just won't detect faces
+            initializationFailed = true;
+            log.error("CRITICAL: Failed to initialize face detector: {}", t.getMessage());
+            // Don't throw - allow app to run, just won't detect faces locally
         }
     }
 
@@ -366,8 +487,19 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             blob = blobFromImage(image, 1.0, new Size(INPUT_WIDTH, INPUT_HEIGHT),
                     new Scalar(104.0, 177.0, 123.0, 0.0), false, false, CV_32F);
 
-            faceDetector.setInput(blob);
-            detections = faceDetector.forward();
+            // Thread-safe access to native DNN resource
+            synchronized (this) {
+                if (faceDetector == null) { // Should not happen if initializationFailed check is done upstream
+                    log.warn("Face detector is null in detectFaces, attempting re-initialization.");
+                    initializeFaceDetector();
+                }
+                if (faceDetector == null || initializationFailed) {
+                    log.error("Face detector is not initialized or failed to initialize. Cannot detect faces.");
+                    return detectionsList;
+                }
+                faceDetector.setInput(blob);
+                detections = faceDetector.forward();
+            }
 
             long[] sizes = detections.createIndexer().sizes();
             for (int i = 0; i < sizes[2]; i++) {
@@ -414,46 +546,53 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
      * model
      */
     private float[] extractFeatureVector(Mat face) {
-        // In a real implementation, you would use a pre-trained deep learning model
-        // like FaceNet, ArcFace, or OpenFace to extract face embeddings.
-        // This is a simplified placeholder implementation.
+        // Robust feature extraction: Divide image into grid and compute multiple
+        // statistics
+        // (Mean, Variance, and simple Local Symmetry)
 
-        // Convert to grayscale
         Mat gray = new Mat();
         opencv_imgproc.cvtColor(face, gray, opencv_imgproc.COLOR_BGR2GRAY);
 
-        // Resize to a fixed size (e.g., 160x160 which is common for face recognition
-        // models)
-        Mat resized = new Mat();
-        opencv_imgproc.resize(gray, resized, new Size(160, 160));
+        // Equalize histogram to handle lighting variations
+        Mat equalized = new Mat();
+        opencv_imgproc.equalizeHist(gray, equalized);
 
-        // Normalize pixel values to [0,1]
-        // Normalize
         Mat normalized = new Mat();
-        opencv_core.normalize(gray, normalized, 0, 255, opencv_core.NORM_MINMAX, CV_32F, null);
+        opencv_core.normalize(equalized, normalized, 0, 1.0, opencv_core.NORM_MINMAX, CV_32F, null);
 
-        // Simple feature extraction: divide image into grid and compute statistics
         float[] features = new float[FEATURE_SIZE];
-        int cellSize = 20;
+        int divisions = (int) Math.sqrt(FEATURE_SIZE / 2); // Split budget between mean and variance
+        int cellW = normalized.cols() / divisions;
+        int cellH = normalized.rows() / divisions;
         int idx = 0;
 
-        for (int i = 0; i < normalized.rows() && idx < FEATURE_SIZE; i += cellSize) {
-            for (int j = 0; j < normalized.cols() && idx < FEATURE_SIZE; j += cellSize) {
-                int endRow = Math.min(i + cellSize, normalized.rows());
-                int endCol = Math.min(j + cellSize, normalized.cols());
+        for (int i = 0; i < divisions && idx < FEATURE_SIZE - 2; i++) {
+            for (int j = 0; j < divisions && idx < FEATURE_SIZE - 2; j++) {
+                int x = j * cellW;
+                int y = i * cellH;
+                int w = Math.min(cellW, normalized.cols() - x);
+                int h = Math.min(cellH, normalized.rows() - y);
 
-                Mat cell = new Mat(normalized, new Rect(j, i, endCol - j, endRow - i));
-                Scalar mean = opencv_core.mean(cell);
+                Mat cell = new Mat(normalized, new Rect(x, y, w, h));
+                Mat mean = new Mat();
+                Mat stddev = new Mat();
+                opencv_core.meanStdDev(cell, mean, stddev);
 
-                if (idx < FEATURE_SIZE) {
-                    features[idx++] = (float) mean.get(0);
-                }
+                features[idx++] = (float) mean.createIndexer().getDouble(0);
+                features[idx++] = (float) stddev.createIndexer().getDouble(0);
+
                 cell.release();
             }
         }
 
+        // Add more global characteristics to fill the rest of the vector
+        Scalar globalMean = opencv_core.mean(normalized);
+        while (idx < FEATURE_SIZE) {
+            features[idx++] = (float) globalMean.get(0);
+        }
+
         gray.release();
-        resized.release();
+        equalized.release();
         normalized.release();
 
         return features;
@@ -518,28 +657,71 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     /**
      * Convert Base64 encoded string back to feature vector
      */
+    private static final double LIVENESS_THRESHOLD = 100.0; // Increased threshold for better spoof detection
+
     /**
      * Calculate liveness using Laplacian Variance (Blur detection)
      */
     private double calculateLiveness(Mat face) {
+        // Enhanced liveness detection: Multiple anti-spoofing techniques
         Mat gray = new Mat();
         Mat laplacian = new Mat();
+        Mat hsv = new Mat();
+        Mat edges = new Mat();
         try {
+            // 1. Texture analysis (Blur detection) - photos/screens are often blurry
             opencv_imgproc.cvtColor(face, gray, opencv_imgproc.COLOR_BGR2GRAY);
             opencv_imgproc.Laplacian(gray, laplacian, opencv_core.CV_64F);
-
             Mat mean = new Mat();
             Mat stddev = new Mat();
             opencv_core.meanStdDev(laplacian, mean, stddev);
+            double textureScore = Math.pow(stddev.createIndexer().getDouble(0), 2);
 
-            double variance = Math.pow(stddev.createIndexer().getDouble(0), 2);
-            return variance;
+            // 2. Edge detection - photos have fewer natural edges than real faces
+            opencv_imgproc.Canny(gray, edges, 50, 150);
+            double edgeDensity = (double) opencv_core.countNonZero(edges) / (face.rows() * face.cols());
+
+            // 3. Skin Color Check (HSV range for human skin)
+            opencv_imgproc.cvtColor(face, hsv, opencv_imgproc.COLOR_BGR2HSV);
+            Mat skinMask = new Mat();
+            // Typical human skin HSV range: H: 0-20, S: 30-150, V: 60-255
+            opencv_core.inRange(hsv,
+                    new Mat(new Scalar(0, 30, 60, 0)),
+                    new Mat(new Scalar(20, 150, 255, 0)),
+                    skinMask);
+
+            double skinPixelRatio = (double) opencv_core.countNonZero(skinMask) / (face.rows() * face.cols());
+            skinMask.release();
+
+            // 4. Reflection detection - screens have reflections
+            Mat reflectionMask = new Mat();
+            opencv_core.inRange(hsv,
+                    new Mat(new Scalar(0, 0, 200, 0)), // Very bright values indicate reflections
+                    new Mat(new Scalar(180, 50, 255, 0)),
+                    reflectionMask);
+            double reflectionRatio = (double) opencv_core.countNonZero(reflectionMask) / (face.rows() * face.cols());
+            reflectionMask.release();
+
+            // Combined scoring: High texture + good skin ratio + moderate edges + low reflections = live person
+            double combinedScore = textureScore * (0.6 + skinPixelRatio * 0.3) * (1.0 + edgeDensity * 0.1);
+            
+            // Penalize heavily for reflections (indicates screen)
+            if (reflectionRatio > 0.05) {
+                combinedScore *= 0.3; // Heavy penalty for screen reflections
+            }
+
+            log.info("Enhanced liveness analysis: Texture={:.2f}, SkinRatio={:.2f}, EdgeDensity={:.2f}, ReflectionRatio={:.2f}, Final={:.2f}, Threshold={}",
+                    textureScore, skinPixelRatio, edgeDensity, reflectionRatio, combinedScore, LIVENESS_THRESHOLD);
+
+            return combinedScore;
         } catch (Exception e) {
             log.error("Error calculating liveness: {}", e.getMessage());
             return 0.0;
         } finally {
             gray.release();
             laplacian.release();
+            hsv.release();
+            edges.release();
         }
     }
 
@@ -547,26 +729,44 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
      * Detect emotion based on basic facial features (pixel intensity distribution)
      */
     private String detectEmotion(Mat face) {
-        // Simplified emotion detection: Analyze the distribution of intensities
-        // In a real app, this would use a CNN emotion classifier
+        // Improved emotion detection: Analyze intensity distribution and variance
         Mat gray = new Mat();
+        Mat laplacian = new Mat();
         try {
             opencv_imgproc.cvtColor(face, gray, opencv_imgproc.COLOR_BGR2GRAY);
-            Scalar mean = opencv_core.mean(gray);
-            double avgIntensity = mean.get(0);
 
-            // Very raw heuristic: Higher intensity variance often correlates with more
-            // expressive faces
-            if (avgIntensity > 180)
+            // Calculate global intensity and variance
+            Mat mean = new Mat();
+            Mat stddev = new Mat();
+            opencv_core.meanStdDev(gray, mean, stddev);
+
+            double avgIntensity = mean.createIndexer().getDouble(0);
+            double variance = Math.pow(stddev.createIndexer().getDouble(0), 2);
+
+            // Analyze mouth region (lower 3rd of face ROI)
+            int mouthY = (int) (gray.rows() * 0.7);
+            int mouthH = gray.rows() - mouthY;
+            Mat mouthRegion = new Mat(gray, new Rect(0, mouthY, gray.cols(), mouthH));
+            Scalar mouthMean = opencv_core.mean(mouthRegion);
+            double mouthIntensity = mouthMean.get(0);
+            mouthRegion.release();
+
+            // Heuristic based on research on facial expressions and intensity distribution
+            if (variance > 3000)
+                return "Expressive";
+            if (avgIntensity > 200)
                 return "Surprised";
-            if (avgIntensity < 80)
+            if (mouthIntensity > avgIntensity * 1.2)
+                return "Happy"; // Brighter mouth area often indicates teeth/smile
+            if (avgIntensity < 70)
                 return "Serious";
 
             return "Neutral";
         } catch (Exception e) {
-            return "Unknown";
+            return "Neutral";
         } finally {
             gray.release();
+            laplacian.release();
         }
     }
 
@@ -585,5 +785,295 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             log.error("Error decoding features: {}", e.getMessage());
             return new float[FEATURE_SIZE];
         }
+    }
+
+    private FaceVerificationResponse verifyFaceAws(FaceVerificationRequest request, byte[] imageBytes, Mat fullImage,
+            int imgWidth,
+            int imgHeight)
+            throws IOException {
+        try {
+            log.info("Starting advanced AWS face analysis with spoof detection");
+            
+            // 1. Perform advanced face analysis with spoof detection
+            AdvancedFaceAnalysisResult advancedAnalysis = awsFaceService.analyzeFaceAdvanced(imageBytes);
+            if (advancedAnalysis == null) {
+                return FaceVerificationResponse.failure("AWS advanced face analysis failed");
+            }
+
+            // 2. Search for identity (AWS searches the largest face by default)
+            software.amazon.awssdk.services.rekognition.model.SearchFacesByImageResponse searchResponse = null;
+            try {
+                searchResponse = awsFaceService.searchFace(imageBytes);
+            } catch (Exception e) {
+                log.debug("AWS Identity search found no matches or failed: {}", e.getMessage());
+            }
+
+            List<FaceDetectionResult> results = new ArrayList<>();
+
+            // Process each detected face with advanced analysis
+            for (AdvancedFaceDetail advancedFace : advancedAnalysis.getFaceDetails()) {
+                software.amazon.awssdk.services.rekognition.model.BoundingBox box = advancedFace.getBoundingBox();
+
+                int x = (int) (box.left() * imgWidth);
+                int y = (int) (box.top() * imgHeight);
+                int w = (int) (box.width() * imgWidth);
+                int h = (int) (box.height() * imgHeight);
+
+                // Get emotion from advanced analysis
+                String emotion = advancedFace.getTopEmotion() != null ? 
+                    advancedFace.getTopEmotion().substring(0, 1).toUpperCase() + 
+                    advancedFace.getTopEmotion().substring(1).toLowerCase() : "Neutral";
+
+                // Get age from advanced analysis
+                String age = advancedFace.getAgeRange();
+
+                // Run local liveness check on the face crop
+                double livenessScore = 0.0;
+                boolean isLive = true;
+                try {
+                    int safeX = Math.max(0, x);
+                    int safeY = Math.max(0, y);
+                    int safeW = Math.min(w, fullImage.cols() - safeX);
+                    int safeH = Math.min(h, fullImage.rows() - safeY);
+                    if (safeW > 0 && safeH > 0) {
+                        Mat faceRoi = new Mat(fullImage, new Rect(safeX, safeY, safeW, safeH));
+                        livenessScore = calculateLiveness(faceRoi);
+                        isLive = livenessScore > LIVENESS_THRESHOLD;
+                        faceRoi.release();
+                    }
+                } catch (Exception e) {
+                    log.warn("Local liveness check failed for AWS face crop: {}", e.getMessage());
+                }
+
+                // Enhanced spoof detection using AWS advanced analysis
+                boolean isSpoofed = advancedFace.isLikelySpoof();
+                double spoofProbability = advancedFace.getSpoofProbability();
+                
+                // Additional quality checks
+                double qualityScore = advancedFace.getQualityScore();
+                boolean isHighQuality = qualityScore > 0.6;
+
+                // CRITICAL: Multi-factor authorization check
+                boolean authorized = false;
+                final AtomicReference<FaceUser> matchedUserRef = new AtomicReference<>();
+                double confidence = 0.0;
+
+                // Check if this face matches the searched/identified face
+                if (searchResponse != null && searchResponse.searchedFaceBoundingBox() != null) {
+                    software.amazon.awssdk.services.rekognition.model.BoundingBox searchedBox = searchResponse
+                            .searchedFaceBoundingBox();
+                    // Match by bounding box proximity (normalized coordinates)
+                    if (Math.abs(box.left() - searchedBox.left()) < 0.05
+                            && Math.abs(box.top() - searchedBox.top()) < 0.05) {
+                        if (!searchResponse.faceMatches().isEmpty()) {
+                            software.amazon.awssdk.services.rekognition.model.FaceMatch match = searchResponse
+                                    .faceMatches().get(0);
+                            confidence = match.similarity() / 100.0;
+                            
+                            // Multi-factor authorization: Face match + Quality + Liveness + No Spoof
+                            authorized = confidence >= 0.8 && isHighQuality && isLive && !isSpoofed;
+                            
+                            if (authorized) {
+                                String externalId = match.face().externalImageId();
+                                if (externalId != null) {
+                                    faceUserRepository.findById(externalId).ifPresent(u -> {
+                                        matchedUserRef.set(u);
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Build comprehensive detection result
+                FaceDetectionResult result = FaceDetectionResult.builder()
+                        .x(x).y(y).width(w).height(h)
+                        .authorized(authorized)
+                        .user(authorized ? matchedUserRef.get() : null)
+                        .confidence(confidence)
+                        .isLive(isLive)
+                        .livenessScore(livenessScore)
+                        .emotion(emotion)
+                        .age(age)
+                        .qualityScore(qualityScore)
+                        .spoofProbability(spoofProbability)
+                        .isSpoofed(isSpoofed)
+                        .confidenceLevel(advancedFace.getConfidenceLevel())
+                        .analysisMessage(getAnalysisMessage(advancedFace, authorized, isLive))
+                        .build();
+
+                results.add(result);
+
+                // Enhanced logging with detailed analysis
+                if (!request.isLive()) {
+                    String logMessage = String.format(
+                        "AWS Analysis - Quality: %.2f, SpoofProb: %.2f, Liveness: %.2f, Authorized: %s",
+                        qualityScore, spoofProbability, livenessScore, authorized
+                    );
+                    log.info(logMessage);
+                    
+                    logVerification(
+                        authorized && matchedUserRef.get() != null ? matchedUserRef.get().getId() : null,
+                        FaceProvider.AWS,
+                        authorized,
+                        confidence,
+                        emotion,
+                        age,
+                        isLive
+                    );
+                }
+            }
+
+            if (results.isEmpty()) {
+                return FaceVerificationResponse.failure("No faces detected by AWS");
+            }
+
+            // Provide detailed feedback about spoof attempts
+            if (advancedAnalysis.hasSpoofAttempts()) {
+                String message = advancedAnalysis.getAnalysisSummary();
+                log.warn("Potential spoofing detected: {}", message);
+            }
+
+            return FaceVerificationResponse.success(results);
+
+        } catch (Exception e) {
+            log.error("AWS Advanced Verification Failed: {}", e.getMessage());
+            return FaceVerificationResponse.failure("AWS Error: " + e.getMessage());
+        }
+    }
+
+    private FaceVerificationResponse verifyFaceAzure(FaceVerificationRequest request, byte[] imageBytes, Mat fullImage)
+            throws IOException {
+        try {
+            List<com.azure.ai.vision.face.models.FaceDetectionResult> azureFaces = azureFaceService
+                    .detectFaces(imageBytes);
+
+            List<FaceDetectionResult> results = new ArrayList<>();
+
+            if (azureFaces.isEmpty()) {
+                if (!request.isLive()) {
+                    logVerification(null, FaceProvider.AZURE, false, 0.0, "None", "N/A", false);
+                }
+                return FaceVerificationResponse.failure("No faces detected by Azure");
+            }
+
+            for (com.azure.ai.vision.face.models.FaceDetectionResult face : azureFaces) {
+                com.azure.ai.vision.face.models.FaceRectangle rect = face.getFaceRectangle();
+                if (rect == null) {
+                    log.warn("Azure detected a face but returned no rectangle. Skipping.");
+                    continue;
+                }
+
+                // Enhancement: Extract emotion using local OpenCV fallback since Azure retired
+                // it
+                String emotion = "Neutral";
+                double livenessScore = 0.0;
+                boolean isLive = true;
+
+                try {
+                    int x = rect.getLeft();
+                    int y = rect.getTop();
+                    int w = rect.getWidth();
+                    int h = rect.getHeight();
+
+                    // Clamp to image bounds
+                    x = Math.max(0, x);
+                    y = Math.max(0, y);
+                    w = Math.min(w, fullImage.cols() - x);
+                    h = Math.min(h, fullImage.rows() - y);
+
+                    if (w > 0 && h > 0) {
+                        Mat faceRoi = new Mat(fullImage, new Rect(x, y, w, h));
+                        emotion = detectEmotion(faceRoi);
+                        livenessScore = calculateLiveness(faceRoi);
+                        isLive = livenessScore > LIVENESS_THRESHOLD;
+                        faceRoi.release();
+                    }
+                } catch (Exception e) {
+                    log.warn("Local analysis fallback failed for Azure face: {}", e.getMessage());
+                }
+
+                // Get age from Azure if available
+                com.azure.ai.vision.face.models.FaceAttributes attributes = face.getFaceAttributes();
+                String age = (attributes != null && attributes.getAge() != null)
+                        ? String.valueOf(attributes.getAge().intValue())
+                        : "N/A";
+
+                FaceDetectionResult result = FaceDetectionResult.builder()
+                        .x(rect.getLeft())
+                        .y(rect.getTop())
+                        .width(rect.getWidth())
+                        .height(rect.getHeight())
+                        .authorized(false) // Azure verification requires additional setup/PersonGroup
+                        .confidence(0.0)
+                        .isLive(isLive)
+                        .livenessScore(livenessScore)
+                        .emotion(emotion)
+                        .age(age)
+                        .build();
+
+                results.add(result);
+
+                // Log each detected face
+                if (!request.isLive()) {
+                    logVerification(null, FaceProvider.AZURE, false, 0.0, emotion, age, isLive);
+                }
+            }
+
+            return FaceVerificationResponse.success(results);
+        } catch (Exception e) {
+            log.error("Azure Verification Failed: {}", e.getMessage());
+            return FaceVerificationResponse.failure("Azure Error: " + e.getMessage());
+        }
+    }
+
+    private void logVerification(String userId, FaceProvider provider, boolean authorized,
+            double confidence, String emotion, String age, boolean isLive) {
+        try {
+            FaceVerificationLog logEntry = new FaceVerificationLog();
+            logEntry.setUserId(userId);
+            logEntry.setProvider(provider);
+            logEntry.setAuthorized(authorized);
+            logEntry.setConfidenceScore(confidence);
+            logEntry.setDetectedEmotion(emotion);
+            logEntry.setDetectedAge(age);
+            logEntry.setLive(isLive);
+            faceVerificationLogRepository.save(logEntry);
+        } catch (Exception e) {
+            log.error("Failed to save verification log: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Generate detailed analysis message for face detection result
+     */
+    private String getAnalysisMessage(AdvancedFaceDetail advancedFace, boolean authorized, boolean isLive) {
+        StringBuilder message = new StringBuilder();
+        
+        if (advancedFace.isLikelySpoof()) {
+            message.append("🚫 SPOOF RISK: ").append(String.format("%.1f%%", advancedFace.getSpoofProbability() * 100));
+        } else if (authorized && isLive) {
+            message.append("✅ AUTHORIZED - High confidence live detection");
+        } else if (!isLive) {
+            message.append("❌ NOT LIVE - Liveness check failed");
+        } else if (!authorized) {
+            message.append("⚠️ RECOGNIZED BUT NOT AUTHORIZED - Quality or confidence too low");
+        }
+        
+        // Add quality information
+        if (advancedFace.getQualityScore() < 0.6) {
+            message.append(" | Low image quality detected");
+        }
+        
+        // Add specific spoof indicators
+        if (advancedFace.getOcclusionLevel() != null && advancedFace.getOcclusionLevel() > 0.5) {
+            message.append(" | High occlusion detected");
+        }
+        
+        if (advancedFace.getWearingSunglasses() != null && advancedFace.getWearingSunglasses()) {
+            message.append(" | Sunglasses detected (spoof risk)");
+        }
+        
+        return message.toString();
     }
 }

@@ -30,6 +30,10 @@ public class FaceUser {
     @Column(name = "s3_key")
     private String s3Key; // S3 object key
 
+    @Lob
+    @Column(name = "image_data", columnDefinition = "TEXT")
+    private String imageData; // Base64 encoded image for display
+
     @Column(name = "is_active", columnDefinition = "boolean default true")
     private boolean isActive = true;
 

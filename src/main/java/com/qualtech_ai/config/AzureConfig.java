@@ -4,56 +4,107 @@ import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.ai.textanalytics.TextAnalyticsClient;
 import com.azure.ai.textanalytics.TextAnalyticsClientBuilder;
+import com.azure.ai.vision.face.FaceClient;
+import com.azure.ai.vision.face.FaceClientBuilder;
 import com.azure.core.credential.AzureKeyCredential;
 import com.microsoft.cognitiveservices.speech.SpeechConfig;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+@Slf4j
 @Configuration
 public class AzureConfig {
 
-    @Value("${azure.storage.connection-string}")
+    @Value("${azure.storage.connection-string:}")
     private String storageConnectionString;
 
-    @Value("${azure.speech.key}")
+    @Value("${azure.speech.key:}")
     private String speechKey;
 
-    @Value("${azure.speech.region}")
+    @Value("${azure.speech.region:}")
     private String speechRegion;
 
-    @Value("${azure.language.key}")
+    @Value("${azure.language.key:}")
     private String languageKey;
 
-    @Value("${azure.language.endpoint}")
+    @Value("${azure.language.endpoint:}")
     private String languageEndpoint;
+
+    @Value("${azure.face.key:}")
+    private String faceKey;
+
+    @Value("${azure.face.endpoint:}")
+    private String faceEndpoint;
 
     @Bean
     public BlobServiceClient blobServiceClient() {
-        if (storageConnectionString == null || storageConnectionString.isEmpty()) {
+        if (isInvalid(storageConnectionString)) {
             return null;
         }
-        return new BlobServiceClientBuilder()
-                .connectionString(storageConnectionString)
-                .buildClient();
+        try {
+            return new BlobServiceClientBuilder()
+                    .connectionString(storageConnectionString)
+                    .buildClient();
+        } catch (Exception e) {
+            log.warn(
+                    "Failed to initialize Azure Blob Service Client with provided connection string. Storage features will be disabled. Error: {}",
+                    e.getMessage());
+            return null;
+        }
     }
 
     @Bean
     public TextAnalyticsClient textAnalyticsClient() {
-        if (languageKey == null || languageKey.isEmpty() || languageEndpoint == null || languageEndpoint.isEmpty()) {
+        if (isInvalid(languageKey) || isInvalid(languageEndpoint)) {
             return null;
         }
-        return new TextAnalyticsClientBuilder()
-                .credential(new AzureKeyCredential(languageKey))
-                .endpoint(languageEndpoint)
-                .buildClient();
+        try {
+            return new TextAnalyticsClientBuilder()
+                    .credential(new AzureKeyCredential(languageKey))
+                    .endpoint(languageEndpoint)
+                    .buildClient();
+        } catch (Exception e) {
+            log.warn(
+                    "Failed to initialize Azure Text Analytics Client. Text analysis features will be disabled. Error: {}",
+                    e.getMessage());
+            return null;
+        }
     }
 
     @Bean
     public SpeechConfig speechConfig() {
-        if (speechKey == null || speechKey.isEmpty() || speechRegion == null || speechRegion.isEmpty()) {
+        if (isInvalid(speechKey) || isInvalid(speechRegion)) {
             return null;
         }
-        return SpeechConfig.fromSubscription(speechKey, speechRegion);
+        try {
+            return SpeechConfig.fromSubscription(speechKey, speechRegion);
+        } catch (Exception e) {
+            log.warn("Failed to initialize Azure Speech Config. Speech features will be disabled. Error: {}",
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    @Bean
+    public FaceClient faceClient() {
+        if (isInvalid(faceKey) || isInvalid(faceEndpoint)) {
+            return null;
+        }
+        try {
+            return new FaceClientBuilder()
+                    .endpoint(faceEndpoint)
+                    .credential(new AzureKeyCredential(faceKey))
+                    .buildClient();
+        } catch (Exception e) {
+            log.warn("Failed to initialize Azure Face Client. Face features will be disabled. Error: {}",
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    private boolean isInvalid(String value) {
+        return value == null || value.isBlank() || value.startsWith("YOUR_") || value.contains("PLACEHOLDER");
     }
 }

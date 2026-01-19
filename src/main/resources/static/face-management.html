@@ -126,6 +126,37 @@
             font-size: 0.85rem;
             font-weight: 500;
         }
+
+        .cursor-pointer {
+            cursor: pointer;
+        }
+
+        .hover-card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .hover-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+
+        .animate-pulse {
+            animation: pulse 2s infinite;
+        }
     </style>
 </head>
 
@@ -167,7 +198,8 @@
                 <h4 class="mb-0 fw-bold text-dark">Face Management</h4>
                 <div class="d-flex align-items-center gap-3">
                     <div class="dropdown">
-                        <button class="btn btn-light rounded-pill px-3 dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <button class="btn btn-light rounded-pill px-3 dropdown-toggle" type="button"
+                            data-bs-toggle="dropdown">
                             <i class="bi bi-person-circle me-2"></i><span id="userNameTop">User</span>
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
@@ -180,79 +212,233 @@
 
             <div class="container-fluid px-0">
                 <div class="row">
-                    <!-- Registration Form -->
-                    <div class="col-lg-5">
-                        <div class="glass-card">
-                            <h5 class="fw-bold mb-4"><i class="bi bi-person-plus-fill me-2 text-primary"></i>Register New Face</h5>
-                            <form id="faceRegistrationForm">
-                                <div class="text-center mb-4">
-                                    <div class="preview-container" id="imagePreviewContainer">
-                                        <i class="bi bi-camera text-muted fs-1" id="placeholderIcon"></i>
-                                        <img id="imagePreview" src="" alt="Preview" style="display: none;">
-                                    </div>
-                                    <button type="button" class="btn btn-outline-primary btn-sm rounded-pill" onclick="document.getElementById('faceImage').click()">
-                                        <i class="bi bi-upload me-2"></i>Select Image
-                                    </button>
-                                    <input type="file" id="faceImage" accept="image/*" style="display: none;" required>
-                                    <div class="form-text mt-2">Upload a clear front-facing photo</div>
+                    <!-- Main Selection Menu -->
+                    <div id="selectionSection" class="row g-4 justify-content-center pt-5">
+                        <div class="col-md-5 col-lg-4">
+                            <div class="glass-card h-100 p-5 text-center hover-card cursor-pointer"
+                                onclick="showSection('management')">
+                                <div class="feature-icon bg-primary bg-opacity-10 text-primary rounded-circle mb-4 mx-auto d-flex align-items-center justify-content-center"
+                                    style="width: 100px; height: 100px;">
+                                    <i class="bi bi-person-lines-fill display-4"></i>
                                 </div>
-
-                                <div class="mb-3">
-                                    <label for="name" class="form-label fw-semibold">Full Name</label>
-                                    <input type="text" class="form-control" id="name" placeholder="John Doe" required>
+                                <h3 class="fw-bold mb-3">Authorized Users</h3>
+                                <p class="text-muted mb-4">Register new faces and manage the database of authorized
+                                    personnel.</p>
+                                <button class="btn btn-primary rounded-pill px-4">Manage Database</button>
+                            </div>
+                        </div>
+                        <div class="col-md-5 col-lg-4">
+                            <div class="glass-card h-100 p-5 text-center hover-card cursor-pointer"
+                                onclick="showSection('live')">
+                                <div class="feature-icon bg-success bg-opacity-10 text-success rounded-circle mb-4 mx-auto d-flex align-items-center justify-content-center"
+                                    style="width: 100px; height: 100px;">
+                                    <i class="bi bi-person-bounding-box display-4"></i>
                                 </div>
-                                <div class="mb-3">
-                                    <label for="email" class="form-label fw-semibold">Email Address</label>
-                                    <input type="email" class="form-control" id="email" placeholder="john@example.com" required>
-                                </div>
-                                <div class="row mb-4">
-                                    <div class="col-md-6">
-                                        <label for="department" class="form-label fw-semibold">Department</label>
-                                        <input type="text" class="form-control" id="department" placeholder="IT">
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label for="position" class="form-label fw-semibold">Position</label>
-                                        <input type="text" class="form-control" id="position" placeholder="Manager">
-                                    </div>
-                                </div>
-                                <button type="submit" class="btn btn-primary w-100 py-2 rounded-pill fw-bold" id="submitBtn">
-                                    <span class="spinner-border spinner-border-sm d-none me-2" role="status"></span>
-                                    Register Authorized User
-                                </button>
-                            </form>
+                                <h3 class="fw-bold mb-3">Live Analysis</h3>
+                                <p class="text-muted mb-4">Real-time face detection, verification against authorized
+                                    users, and emotion analysis.</p>
+                                <button class="btn btn-success rounded-pill px-4">Start Live Feed</button>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Authorized Users List -->
-                    <div class="col-lg-7">
-                        <div class="glass-card">
-                            <div class="d-flex justify-content-between align-items-center mb-4">
-                                <h5 class="fw-bold mb-0">Authorized Persons</h5>
-                                <button class="btn btn-light btn-sm rounded-pill" onclick="loadUsers()">
-                                    <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-                                </button>
+                    <!-- Management Section (Hidden by default) -->
+                    <div id="managementSection" style="display: none;">
+                        <div class="mb-4">
+                            <button class="btn btn-link text-decoration-none ps-0" onclick="showSection('selection')">
+                                <i class="bi bi-arrow-left me-2"></i>Back to Menu
+                            </button>
+                        </div>
+                        <div class="row">
+                            <!-- Registration Form -->
+                            <div class="col-lg-5">
+                                <div class="glass-card">
+                                    <h5 class="fw-bold mb-4"><i
+                                            class="bi bi-person-plus-fill me-2 text-primary"></i>Register New Face</h5>
+                                    <form id="faceRegistrationForm">
+                                        <div class="text-center mb-4">
+                                            <div class="preview-container" id="imagePreviewContainer">
+                                                <i class="bi bi-camera text-muted fs-1" id="placeholderIcon"></i>
+                                                <img id="imagePreview" src="" alt="Preview" style="display: none;">
+                                            </div>
+                                            <button type="button" class="btn btn-outline-primary btn-sm rounded-pill"
+                                                onclick="document.getElementById('faceImage').click()">
+                                                <i class="bi bi-upload me-2"></i>Select Image
+                                            </button>
+                                            <input type="file" id="faceImage" accept="image/*" style="display: none;"
+                                                required>
+                                            <div class="form-text mt-2">Upload a clear front-facing photo</div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="name" class="form-label fw-semibold">Full Name</label>
+                                            <input type="text" class="form-control" id="name" placeholder="John Doe"
+                                                required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="email" class="form-label fw-semibold">Email Address</label>
+                                            <input type="email" class="form-control" id="email"
+                                                placeholder="john@example.com" required>
+                                        </div>
+                                        <div class="row mb-4">
+                                            <div class="col-md-6">
+                                                <label for="department"
+                                                    class="form-label fw-semibold">Department</label>
+                                                <input type="text" class="form-control" id="department"
+                                                    placeholder="IT">
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label for="position" class="form-label fw-semibold">Position</label>
+                                                <input type="text" class="form-control" id="position"
+                                                    placeholder="Manager">
+                                            </div>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary w-100 py-2 rounded-pill fw-bold"
+                                            id="submitBtn">
+                                            <span class="spinner-border spinner-border-sm d-none me-2"
+                                                role="status"></span>
+                                            Register Authorized User
+                                        </button>
+                                    </form>
+                                </div>
                             </div>
-                            <div class="table-responsive">
-                                <table class="table table-hover align-middle">
-                                    <thead class="table-light">
-                                        <tr>
-                                            <th>User</th>
-                                            <th>Contact</th>
-                                            <th>Department</th>
-                                            <th>Status</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="userTableBody">
-                                        <!-- Will be populated by JS -->
-                                        <tr>
-                                            <td colspan="5" class="text-center py-5">
-                                                <div class="spinner-border text-primary" role="status"></div>
-                                                <div class="mt-2 text-muted">Loading users...</div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
+
+                            <!-- Authorized Users List -->
+                            <div class="col-lg-7">
+                                <div class="glass-card">
+                                    <div class="d-flex justify-content-between align-items-center mb-4">
+                                        <h5 class="fw-bold mb-0">Authorized Persons</h5>
+                                        <button class="btn btn-light btn-sm rounded-pill" onclick="loadUsers()">
+                                            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                                        </button>
+                                    </div>
+                                    <div class="table-responsive">
+                                        <table class="table table-hover align-middle">
+                                            <thead class="table-light">
+                                                <tr>
+                                                    <th>User</th>
+                                                    <th>Contact</th>
+                                                    <th>Department</th>
+                                                    <th>Status</th>
+                                                    <th>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="userTableBody">
+                                                <!-- Will be populated by JS -->
+                                                <tr>
+                                                    <td colspan="5" class="text-center py-5">
+                                                        <div class="spinner-border text-primary" role="status"></div>
+                                                        <div class="mt-2 text-muted">Loading users...</div>
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Analysis Section -->
+                    <div id="liveSection" style="display: none;">
+                        <div class="mb-4 d-flex justify-content-between align-items-center">
+                            <button class="btn btn-link text-decoration-none ps-0" onclick="showSection('selection')">
+                                <i class="bi bi-arrow-left me-2"></i>Back to Menu
+                            </button>
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="btn-group" role="group" aria-label="Provider Selection">
+                                    <input type="checkbox" class="btn-check" id="useAws" checked>
+                                    <label class="btn btn-outline-warning" for="useAws">
+                                        <i class="bi bi-amazon me-1"></i>AWS
+                                    </label>
+
+                                    <input type="checkbox" class="btn-check" id="useAzure" checked>
+                                    <label class="btn btn-outline-primary" for="useAzure">
+                                        <i class="bi bi-microsoft me-1"></i>Azure
+                                    </label>
+                                </div>
+                                <span class="badge bg-danger animate-pulse" id="liveIndicator"
+                                    style="display:none;">LIVE</span>
+                            </div>
+                        </div>
+
+                        <div class="row justify-content-center">
+                            <div class="col-lg-8">
+                                <!-- Camera Feed -->
+                                <div class="glass-card p-0 overflow-hidden position-relative mb-4"
+                                    style="min-height: 400px; background: #000;">
+                                    <video id="cameraFeed" autoplay playsinline
+                                        style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);"></video>
+                                    <canvas id="overlayCanvas"
+                                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; transform: scaleX(-1);"></canvas>
+
+                                    <!-- No Camera Placeholder -->
+                                    <div id="cameraPlaceholder"
+                                        class="position-absolute top-50 start-50 translate-middle text-center text-white">
+                                        <i class="bi bi-camera-video-off display-1 mb-3"></i>
+                                        <h5>Camera is inactive</h5>
+                                        <button class="btn btn-primary mt-3" onclick="startCamera()">Turn On
+                                            Camera</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Real-time Reports -->
+                            <div class="col-lg-4">
+                                <div class="d-flex flex-column gap-3 h-100">
+                                    <!-- AWS Report -->
+                                    <div class="glass-card p-3 border-warning border-start border-5" id="awsStatsCard">
+                                        <h6 class="fw-bold text-warning mb-3"><i class="bi bi-amazon me-2"></i>AWS
+                                            Rekognition</h6>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Status:</span>
+                                            <span id="awsStatus" class="badge bg-secondary">Idle</span>
+                                        </div>
+                                        <div class="row g-2 text-center mb-2">
+                                            <div class="col-6">
+                                                <div class="bg-light rounded p-2">
+                                                    <div class="small text-muted">Faces</div>
+                                                    <div id="awsFaceCount" class="fw-bold fs-5">0</div>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="bg-light rounded p-2">
+                                                    <div class="small text-muted">Identified</div>
+                                                    <div id="awsIdentifiedCount" class="fw-bold fs-5">0</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="small text-muted">Top Emotion:</div>
+                                        <div id="awsEmotion" class="fw-bold text-dark">N/A</div>
+                                    </div>
+
+                                    <!-- Azure Report -->
+                                    <div class="glass-card p-3 border-primary border-start border-5"
+                                        id="azureStatsCard">
+                                        <h6 class="fw-bold text-primary mb-3"><i class="bi bi-microsoft me-2"></i>Azure
+                                            Face API</h6>
+                                        <div class="d-flex justify-content-between mb-2">
+                                            <span class="text-muted">Status:</span>
+                                            <span id="azureStatus" class="badge bg-secondary">Idle</span>
+                                        </div>
+                                        <div class="row g-2 text-center mb-2">
+                                            <div class="col-6">
+                                                <div class="bg-light rounded p-2">
+                                                    <div class="small text-muted">Faces</div>
+                                                    <div id="azureFaceCount" class="fw-bold fs-5">0</div>
+                                                </div>
+                                            </div>
+                                            <div class="col-6">
+                                                <div class="bg-light rounded p-2">
+                                                    <div class="small text-muted">Identified</div>
+                                                    <div id="azureIdentifiedCount" class="fw-bold fs-5">0</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="small text-muted">Top Emotion:</div>
+                                        <div id="azureEmotion" class="fw-bold text-dark">N/A</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

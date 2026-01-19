@@ -16,12 +16,11 @@ import java.util.UUID;
 @Service
 public class RefreshTokenService {
 
-    @Value("${jwt.refresh-expiration}")
+    @Value("${jwt.refresh-expiration:86400000}")
     private Long refreshTokenDurationMs;
 
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
-
 
     public Optional<RefreshToken> findByToken(String token) {
         return refreshTokenRepository.findByToken(token);
@@ -34,7 +33,7 @@ public class RefreshTokenService {
         refreshToken.setToken(UUID.randomUUID().toString());
         refreshToken.setRevoked(false);
         refreshToken.setExpired(false);
-        
+
         refreshToken = refreshTokenRepository.save(refreshToken);
         return refreshToken;
     }
@@ -45,11 +44,11 @@ public class RefreshTokenService {
             refreshTokenRepository.save(token);
             throw new TokenRefreshException("Refresh token was expired. Please make a new signin request");
         }
-        
+
         if (token.isRevoked()) {
             throw new TokenRefreshException("Refresh token has been revoked");
         }
-        
+
         return token;
     }
 
@@ -61,10 +60,10 @@ public class RefreshTokenService {
     @Transactional
     public void revokeToken(String token) {
         refreshTokenRepository.findByToken(token)
-            .ifPresent(refreshToken -> {
-                refreshToken.setRevoked(true);
-                refreshTokenRepository.save(refreshToken);
-            });
+                .ifPresent(refreshToken -> {
+                    refreshToken.setRevoked(true);
+                    refreshTokenRepository.save(refreshToken);
+                });
     }
 
     @Transactional

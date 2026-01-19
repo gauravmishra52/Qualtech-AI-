@@ -22,7 +22,9 @@ public class SentimentAnalysisService {
     @Value("${analysis.provider:aws}")
     private String provider;
 
-    public SentimentAnalysisService(ComprehendClient comprehendClient, AzureSentimentService azureSentimentService) {
+    public SentimentAnalysisService(
+            @org.springframework.beans.factory.annotation.Autowired(required = false) ComprehendClient comprehendClient,
+            AzureSentimentService azureSentimentService) {
         this.comprehendClient = comprehendClient;
         this.azureSentimentService = azureSentimentService;
     }
@@ -42,7 +44,12 @@ public class SentimentAnalysisService {
             emptyScores.put("Negative", 0.0f);
             emptyScores.put("Neutral", 0.0f);
             emptyScores.put("Mixed", 0.0f);
+            emptyScores.put("Mixed", 0.0f);
             return new SentimentResponse("NEUTRAL", emptyScores);
+        }
+
+        if (comprehendClient == null) {
+            throw new RuntimeException("AWS Comprehend is not configured. Please check your .env file.");
         }
 
         // AWS Comprehend limit is 5000 bytes. We use 4000 characters to be safe.

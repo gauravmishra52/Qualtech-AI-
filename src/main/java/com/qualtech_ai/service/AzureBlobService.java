@@ -5,6 +5,7 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
+import com.qualtech_ai.exception.AzureServiceException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,11 +22,16 @@ public class AzureBlobService {
     private static final Logger log = LoggerFactory.getLogger(AzureBlobService.class);
     private final BlobServiceClient blobServiceClient;
 
-    @Value("${azure.storage.container-name}")
+    @Value("${azure.storage.container-name:qualtech-container}")
     private String containerName;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     public AzureBlobService(BlobServiceClient blobServiceClient) {
         this.blobServiceClient = blobServiceClient;
+    }
+
+    public AzureBlobService() {
+        this.blobServiceClient = null;
     }
 
     /**
@@ -38,7 +44,15 @@ public class AzureBlobService {
      */
     public String uploadFile(MultipartFile file, String fileName) throws IOException {
         if (blobServiceClient == null) {
-            throw new RuntimeException("Azure Blob Storage is not configured.");
+            throw new AzureServiceException("Blob Storage", "upload", "Azure Blob Storage is not configured.");
+        }
+
+        if (file == null || file.isEmpty()) {
+            throw new AzureServiceException("Blob Storage", "upload", "File is null or empty.");
+        }
+
+        if (fileName == null || fileName.trim().isEmpty()) {
+            throw new AzureServiceException("Blob Storage", "upload", "File name is null or empty.");
         }
 
         log.info("Uploading file to Azure Blob Storage: {} (size: {} bytes)", fileName, file.getSize());
@@ -59,7 +73,7 @@ public class AzureBlobService {
             return blobClient.getBlobUrl();
         } catch (Exception e) {
             log.error("Failed to upload file to Azure Blob Storage: {}", fileName, e);
-            throw new IOException("Azure Blob upload failed: " + e.getMessage(), e);
+            throw new AzureServiceException("Blob Storage", "upload", "Upload failed: " + e.getMessage(), e);
         }
     }
 
@@ -74,7 +88,15 @@ public class AzureBlobService {
      */
     public String generateSasUrl(String blobName, Duration validity) {
         if (blobServiceClient == null) {
-            throw new RuntimeException("Azure Blob Storage is not configured.");
+            throw new AzureServiceException("Blob Storage", "generateSasUrl", "Azure Blob Storage is not configured.");
+        }
+
+        if (blobName == null || blobName.trim().isEmpty()) {
+            throw new AzureServiceException("Blob Storage", "generateSasUrl", "Blob name is null or empty.");
+        }
+
+        if (validity == null || validity.isNegative() || validity.isZero()) {
+            throw new AzureServiceException("Blob Storage", "generateSasUrl", "Invalid validity duration provided.");
         }
 
         try {
@@ -94,7 +116,7 @@ public class AzureBlobService {
             return sasUrl;
         } catch (Exception e) {
             log.error("Failed to generate SAS URL for blob: {}", blobName, e);
-            throw new RuntimeException("Failed to generate SAS URL: " + e.getMessage(), e);
+            throw new AzureServiceException("Blob Storage", "generateSasUrl", "SAS URL generation failed: " + e.getMessage(), e);
         }
     }
 
@@ -106,7 +128,11 @@ public class AzureBlobService {
      */
     public String getBlobUrl(String blobName) {
         if (blobServiceClient == null) {
-            throw new RuntimeException("Azure Blob Storage is not configured.");
+            throw new AzureServiceException("Blob Storage", "getBlobUrl", "Azure Blob Storage is not configured.");
+        }
+
+        if (blobName == null || blobName.trim().isEmpty()) {
+            throw new AzureServiceException("Blob Storage", "getBlobUrl", "Blob name is null or empty.");
         }
 
         BlobContainerClient containerClient = blobServiceClient.getBlobContainerClient(containerName);
@@ -131,7 +157,11 @@ public class AzureBlobService {
      */
     public void deleteBlobIfExists(String blobName) {
         if (blobServiceClient == null) {
-            throw new RuntimeException("Azure Blob Storage is not configured.");
+            throw new AzureServiceException("Blob Storage", "delete", "Azure Blob Storage is not configured.");
+        }
+
+        if (blobName == null || blobName.trim().isEmpty()) {
+            throw new AzureServiceException("Blob Storage", "delete", "Blob name is null or empty.");
         }
 
         try {
@@ -146,7 +176,7 @@ public class AzureBlobService {
             }
         } catch (Exception e) {
             log.error("Failed to delete blob: {}", blobName, e);
-            throw new RuntimeException("Failed to delete blob: " + e.getMessage(), e);
+            throw new AzureServiceException("Blob Storage", "delete", "Blob deletion failed: " + e.getMessage(), e);
         }
     }
 }

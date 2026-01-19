@@ -90,12 +90,4 @@ frontend/
 logs/
 *.log
 
-# Application config (contains secrets)
-src/main/resources/application.yml
-application-*.yml
-
-# Spring Boot config (ABSOLUTE ignore)
-src/main/resources/application.yml
-src/main/resources/application-*.yml
-
 

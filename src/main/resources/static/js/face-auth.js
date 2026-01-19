@@ -1,18 +1,19 @@
 class FaceAuth {
-    constructor() {
+    constructor(provider = 'LOCAL') {
+        this.provider = provider;
         this.video = document.getElementById('cameraFeed');
         this.canvas = document.getElementById('faceCanvas');
         this.ctx = this.canvas.getContext('2d');
         this.stream = null;
         this.isProcessing = false;
-        this.blinkCount = 0;
-        this.requiredBlinks = 2;
-        this.livenessCheckInterval = null;
         this.faceDetected = false;
         this.livenessPassed = false;
-        this.previousDetections = []; // Store detections for motion tracking
+        this.previousDetections = [];
         this.authorizedCount = 0;
         this.unauthorizedCount = 0;
+        this.verificationFrames = 0; // Number of consecutive frames with successful auth
+        this.requiredFrames = 5; // Require 5 stable frames for final auth
+        this.authenticated = false;
     }
 
     async initialize() {
@@ -68,7 +69,7 @@ class FaceAuth {
             formData.append('image', blob, 'frame.jpg');
 
             const token = localStorage.getItem('authToken');
-            const response = await fetch('/api/face/verify', {
+            const response = await fetch(`/api/face/verify?provider=${this.provider}&live=true`, {
                 method: 'POST',
                 headers: {
                     'Authorization': 'Bearer ' + token
@@ -168,14 +169,17 @@ class FaceAuth {
             this.ctx.fillStyle = '#ffffff';
             this.ctx.fillText(label, det.x + 10, det.y - 25);
 
-            // Liveness sub-label
-            this.ctx.font = '600 12px "Inter", sans-serif';
-            this.ctx.fillStyle = det.isLive ? '#90ee90' : '#ffcccb';
-            this.ctx.fillText(liveness, det.x + 10, det.y - 12);
-
-            // Liveness Simulation logic (deprecated, now using real data)
-            if (isAuthorized && !this.livenessPassed) {
-                this.simulateLivenessForUser(det);
+            // Liveness - REAL feedback from backend
+            if (isAuthorized && det.isLive) {
+                this.verificationFrames++;
+                if (this.verificationFrames >= this.requiredFrames && !this.authenticated) {
+                    this.authenticated = true;
+                    this.livenessPassed = true;
+                    this.updateUI('livenessPassed');
+                    this.completeAuthentication(det.user);
+                }
+            } else if (isAuthorized && !det.isLive) {
+                this.verificationFrames = 0; // Reset if liveness fails
             }
         });
 
@@ -205,18 +209,7 @@ class FaceAuth {
         `;
     }
 
-    simulateLivenessForUser(det) {
-        // Simple simulation: need to stay in frame and "blink"
-        if (Math.random() > 0.95) {
-            this.blinkCount++;
-            this.updateUI('blinkDetected');
-            if (this.blinkCount >= this.requiredBlinks) {
-                this.livenessPassed = true;
-                this.updateUI('livenessPassed');
-                this.completeAuthentication(det.user);
-            }
-        }
-    }
+    // simulateLivenessForUser removed - now using real backend data
 
     updateUI(state) {
         const statusEl = document.getElementById('faceAuthStatus');
@@ -229,19 +222,14 @@ class FaceAuth {
                 instructionEl.textContent = 'Position your face in the camera frame';
                 break;
             case 'faceDetected':
-                statusEl.textContent = 'Person(s) Detected';
-                statusEl.className = 'text-success';
-                instructionEl.textContent = 'Keep your face steady and blink to verify';
+                statusEl.textContent = 'Analyzing...';
+                statusEl.className = 'text-primary';
+                instructionEl.textContent = 'Keep your face steady for verification';
                 break;
-
-            case 'blinkDetected':
-                instructionEl.textContent = `Blink detected! (${this.blinkCount}/${this.requiredBlinks})`;
-                break;
-
             case 'livenessPassed':
-                statusEl.textContent = 'Liveness verified!';
+                statusEl.textContent = 'Identity Verified';
                 statusEl.className = 'text-success';
-                instructionEl.textContent = 'Authenticating...';
+                instructionEl.textContent = 'Access Granted. Welcome!';
                 break;
         }
     }
@@ -323,7 +311,9 @@ async function startFaceAuthentication() {
     modal.show();
 
     // Initialize face auth
-    faceAuth = new FaceAuth();
+    // Initialize face auth with selected provider if available
+    const provider = window.selectedProvider || 'LOCAL';
+    faceAuth = new FaceAuth(provider);
     const initialized = await faceAuth.initialize();
 
     if (!initialized) {

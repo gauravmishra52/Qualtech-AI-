@@ -3,6 +3,7 @@ package com.qualtech_ai.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.cognitiveservices.speech.*;
+import com.qualtech_ai.exception.AzureServiceException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -22,8 +23,13 @@ public class AzureSpeechService {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     public AzureSpeechService(SpeechConfig speechConfig) {
         this.speechConfig = speechConfig;
+    }
+
+    public AzureSpeechService() {
+        this.speechConfig = null;
     }
 
     /**
@@ -42,7 +48,11 @@ public class AzureSpeechService {
      */
     public String transcribeFile(String audioUrl) {
         if (speechConfig == null) {
-            throw new RuntimeException("Azure Speech Service is not configured.");
+            throw new AzureServiceException("Speech Service", "transcribe", "Azure Speech Service is not configured.");
+        }
+
+        if (audioUrl == null || audioUrl.trim().isEmpty()) {
+            throw new AzureServiceException("Speech Service", "transcribe", "Audio URL is null or empty.");
         }
 
         log.info("Starting Azure Batch Transcription for URL: {}",
@@ -80,8 +90,8 @@ public class AzureSpeechService {
 
             if (response.statusCode() != 201) {
                 log.error("Failed to submit Azure transcription: {}", response.body());
-                throw new RuntimeException(
-                        "Azure Batch Transcription Submission Failed: Status " + response.statusCode());
+                throw new AzureServiceException("Speech Service", "transcribe", 
+                    "Batch Transcription Submission Failed - Status: " + response.statusCode() + ", Response: " + response.body());
             }
 
             String selfUrl = objectMapper.readTree(response.body()).get("self").asText();
@@ -106,7 +116,8 @@ public class AzureSpeechService {
                     resultFilesUrl = statusNode.get("links").get("files").asText();
                     break;
                 } else if ("Failed".equals(status)) {
-                    throw new RuntimeException("Azure Transcription Job Failed: " + statusResponse.body());
+                    throw new AzureServiceException("Speech Service", "transcribe", 
+                        "Transcription Job Failed - Response: " + statusResponse.body());
                 }
 
                 log.debug("Waiting for Azure transcription (status: {})...", status);
@@ -114,7 +125,8 @@ public class AzureSpeechService {
             }
 
             if (resultFilesUrl == null) {
-                throw new RuntimeException("Azure Transcription Job Timed Out");
+                throw new AzureServiceException("Speech Service", "transcribe", 
+                    "Transcription Job Timed Out after maximum retries");
             }
 
             // 3. Get Result File URL
@@ -136,7 +148,8 @@ public class AzureSpeechService {
             }
 
             if (contentUrl == null || contentUrl.isEmpty()) {
-                throw new RuntimeException("Could not find transcription content URL in result files");
+                throw new AzureServiceException("Speech Service", "transcribe", 
+                    "Could not find transcription content URL in result files");
             }
 
             // 4. Download and Parse JSON
@@ -161,7 +174,8 @@ public class AzureSpeechService {
 
         } catch (Exception e) {
             log.error("Azure Batch Transcription Error: {}", e.getMessage(), e);
-            throw new RuntimeException("Azure Speech Error: " + e.getMessage(), e);
+            throw new AzureServiceException("Speech Service", "transcribe", 
+                "Transcription failed: " + e.getMessage(), e);
         }
     }
 }

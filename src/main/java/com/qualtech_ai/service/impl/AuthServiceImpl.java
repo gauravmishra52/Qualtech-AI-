@@ -43,10 +43,10 @@ public class AuthServiceImpl implements AuthService {
     private final EmailService emailService;
     private final JwtUtil jwtUtil;
 
-    @Value("${app.frontend-url}")
+    @Value("${app.frontend-url:http://localhost:3000}")
     private String frontendUrl;
 
-    @Value("${app.email.verification.token-expiration}")
+    @Value("${app.email.verification.token-expiration:86400000}")
     private long tokenExpirationMs;
 
     // ================= REGISTER =================
