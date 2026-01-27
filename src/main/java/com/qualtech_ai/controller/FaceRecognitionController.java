@@ -49,7 +49,8 @@ public class FaceRecognitionController {
         }
 
         // Basic image validation (more detailed validation in service layer)
-        if (image.getContentType() == null || !image.getContentType().startsWith("image/")) {
+        String contentType = image.getContentType();
+        if (contentType == null || !contentType.startsWith("image/")) {
             return ResponseEntity.badRequest().build();
         }
 
@@ -99,7 +100,7 @@ public class FaceRecognitionController {
     public ResponseEntity<byte[]> processImage(@RequestParam("image") MultipartFile image) throws IOException {
         byte[] processedImage = faceRecognitionService.processImage(image);
         return ResponseEntity.ok()
-                .contentType(MediaType.IMAGE_JPEG)
+                .contentType(MediaType.parseMediaType("image/jpeg"))
                 .body(processedImage);
     }
 

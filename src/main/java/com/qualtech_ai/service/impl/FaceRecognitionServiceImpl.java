@@ -44,7 +44,6 @@ import com.qualtech_ai.util.FaceImagePreprocessor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Optional;
 import java.util.UUID;
 
 import java.io.File;
@@ -278,8 +277,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             // CompletableFuture<Optional<List<com.azure.ai.vision.face.models.FaceDetectionResult>>>
             // azureFuture = azureFaceService
             // .detectFacesSafe(imageBytes);
-            CompletableFuture<Optional<List<com.azure.ai.vision.face.models.FaceDetectionResult>>> azureFuture = CompletableFuture
-                    .completedFuture(Optional.empty());
 
             // Wait for AWS (Primary)
             software.amazon.awssdk.services.rekognition.model.SearchFacesByImageResponse awsResponse = null;
@@ -289,23 +286,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 log.error("AWS Service call failed or timed out: {}", e.getMessage());
             }
 
-            // Azure service disabled for stabilization - skip processing
-            // Optional<List<com.azure.ai.vision.face.models.FaceDetectionResult>>
-            // azureResultOpt = Optional.empty();
-            // try {
-            // azureResultOpt = azureFuture.get(3, TimeUnit.SECONDS);
-            // } catch (Exception e) {
-            // log.debug("Azure Service skipped or timed out");
-            // }
-            Optional<List<com.azure.ai.vision.face.models.FaceDetectionResult>> azureResultOpt = Optional.empty();
-
-            // MANDATORY DECISION TREE (AWS-ONLY MODE):
-            // if (awsAvailable && awsMatchFound) { ACCEPT; }
-            // else if (azureAvailable && azureMatchFound) { ACCEPT; } // Azure disabled
-            // else if (localMatchFound) { ACCEPT; } // Local fallback not implemented
-            // else { REJECT with clear reason; }
-
-            // 3. AWS Decision logic with MANDATORY VALIDATIONS
             boolean awsAvailable = awsFaceService.isAvailable();
 
             if (!awsAvailable) {
@@ -436,6 +416,9 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     @Override
     @Transactional
     public void deleteFaceUser(String id) {
+        if (id == null || id.isEmpty()) {
+            throw new IllegalArgumentException("User ID cannot be null or empty");
+        }
         FaceUser user = faceUserRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + id));
 
@@ -1165,7 +1148,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 boolean isSpoofed = advancedFace.isLikelySpoof();
                 double spoofProbability = advancedFace.getSpoofProbability();
                 double qualityScore = advancedFace.getQualityScore();
-                boolean isHighQuality = qualityScore > 0.6;
 
                 Mat faceCrop = null;
                 Mat faceRoiForLiveness = null;
@@ -1226,7 +1208,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                     // double adaptiveThreshold =
                     // adaptiveThresholdService.calculateAdaptiveThreshold(
                     // preprocessedImage, userId);
-                    double adaptiveThreshold = fixedThreshold;
 
                     // 1. Identity Score (60% weight) - Logarithmic scaling if needed, but linear is
                     // fine for now

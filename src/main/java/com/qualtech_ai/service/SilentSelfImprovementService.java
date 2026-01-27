@@ -29,7 +29,8 @@ public class SilentSelfImprovementService {
     }
 
     @Transactional
-    public void recordHighConfidenceMatch(String userId, double confidence, String newFaceEmbedding) {
+    public void recordHighConfidenceMatch(@org.springframework.lang.NonNull String userId, double confidence,
+            String newFaceEmbedding) {
         if (confidence < highConfidenceThreshold) {
             return;
         }

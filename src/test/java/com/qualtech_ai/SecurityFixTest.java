@@ -10,7 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.anyOf;
-import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.equalTo;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -27,9 +27,10 @@ public class SecurityFixTest {
     }
 
     @Test
+    @SuppressWarnings("null") // anyOf matcher is safe but Eclipse null analysis can't verify it
     public void testErrorEndpointDoesNotStackOverflow() throws Exception {
 
         mockMvc.perform(get("/error"))
-                .andExpect(status().is(anyOf(is(500), is(200), is(404))));
+                .andExpect(status().is(anyOf(equalTo(500), equalTo(200), equalTo(404))));
     }
 }

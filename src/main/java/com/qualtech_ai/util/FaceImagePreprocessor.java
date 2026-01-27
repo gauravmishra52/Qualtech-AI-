@@ -152,6 +152,13 @@ public class FaceImagePreprocessor {
         return isLowLight;
     }
 
+    public boolean isHighLightCondition(Mat image) {
+        double brightness = calculateBrightness(image);
+        boolean isHighLight = brightness > BRIGHTNESS_THRESHOLD_HIGH;
+        log.debug("Lighting condition check - Brightness: {:.2f}, High light/Overexposed: {}", brightness, isHighLight);
+        return isHighLight;
+    }
+
     /**
      * Preprocess full image for detection (no resizing)
      */
