@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.ArrayList;
 import com.qualtech_ai.dto.AdvancedFaceDetail;
 import com.qualtech_ai.dto.AdvancedFaceAnalysisResult;
+import jakarta.annotation.PostConstruct;
 
 @Slf4j
 @Service
@@ -29,29 +30,68 @@ public class AwsFaceService {
         }
     }
 
+    @PostConstruct
+    public void validateConfiguration() {
+        if (rekognitionClient == null)
+            return;
+
+        try {
+            log.info("Validating AWS Rekognition Configuration...");
+            ListCollectionsResponse response = rekognitionClient
+                    .listCollections(ListCollectionsRequest.builder().maxResults(1).build());
+            log.info("AWS Rekognition Connection Successful. Found collections: {}", response.collectionIds());
+            ensureCollectionExists();
+        } catch (Exception e) {
+            log.error("AWS Rekognition Validation Failed! Check Region/Credentials. Error: {}", e.getMessage());
+            // We don't throw here to allow app to start, but AWS features will likely fail
+        }
+    }
+
     public SearchFacesByImageResponse searchFace(byte[] imageBytes) {
         if (rekognitionClient == null) {
-            log.warn("Attempted to search face but AWS Rekognition is not configured.");
+            log.warn("❌ AWS Rekognition is NOT CONFIGURED. Skipping search.");
             return null;
         }
 
         Image image = Image.builder().bytes(SdkBytes.fromByteArray(imageBytes)).build();
 
         try {
+            log.debug("🔍 AWS: Searching collection '{}' (threshold: 80%)", collectionId);
+
             SearchFacesByImageRequest request = SearchFacesByImageRequest.builder()
                     .collectionId(collectionId)
                     .image(image)
                     .maxFaces(1)
-                    .faceMatchThreshold(80F)
+                    .faceMatchThreshold(80F) // Increased to 80.0 as per stability requirements
                     .build();
 
-            return rekognitionClient.searchFacesByImage(request);
+            SearchFacesByImageResponse response = rekognitionClient.searchFacesByImage(request);
+
+            // Log success with details
+            if (response != null && !response.faceMatches().isEmpty()) {
+                var match = response.faceMatches().get(0);
+                log.info("✅ AWS MATCH! ExternalId: {}, FaceId: {}, Similarity: {:.2f}%",
+                        match.face().externalImageId(), match.face().faceId(), match.similarity());
+            } else if (response != null) {
+                log.warn("⚠️  AWS: No matches found in collection '{}'", collectionId);
+            }
+
+            return response;
         } catch (ResourceNotFoundException e) {
-            log.error("Collection ID {} not found", collectionId);
+            log.error("❌ AWS: Collection '{}' NOT FOUND!", collectionId);
+            return null;
+        } catch (InvalidParameterException e) {
+            log.error("❌ AWS: Invalid parameters: {}", e.getMessage());
+            return null;
+        } catch (AccessDeniedException e) {
+            log.error("❌ AWS: ACCESS DENIED! Check IAM permissions.");
             return null;
         } catch (RekognitionException e) {
-            log.error("AWS Rekognition Error: {}", e.getMessage());
-            throw e;
+            log.error("❌ AWS Error [{}]: {}", e.awsErrorDetails().errorCode(), e.getMessage());
+            return null;
+        } catch (Exception e) {
+            log.error("❌ AWS Unexpected error: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+            return null;
         }
     }
 
@@ -94,7 +134,7 @@ public class AwsFaceService {
                     .build();
 
             DetectFacesResponse response = rekognitionClient.detectFaces(request);
-            
+
             List<AdvancedFaceDetail> advancedFaces = new ArrayList<>();
             for (FaceDetail face : response.faceDetails()) {
                 AdvancedFaceDetail advancedDetail = analyzeFaceQuality(face);
@@ -117,24 +157,24 @@ public class AwsFaceService {
      */
     private AdvancedFaceDetail analyzeFaceQuality(FaceDetail face) {
         AdvancedFaceDetail.AdvancedFaceDetailBuilder builder = AdvancedFaceDetail.builder();
-        
+
         // Basic face info
         BoundingBox box = face.boundingBox();
         builder.boundingBox(box);
-        
+
         // Quality analysis
         if (face.quality() != null) {
             ImageQuality quality = face.quality();
             builder.sharpness(quality.sharpness() != null ? quality.sharpness().doubleValue() : null)
-                   .brightness(quality.brightness() != null ? quality.brightness().doubleValue() : null);
+                    .brightness(quality.brightness() != null ? quality.brightness().doubleValue() : null);
         }
 
         // Pose analysis for anti-spoofing
         if (face.pose() != null) {
             Pose pose = face.pose();
             builder.pitch(pose.pitch() != null ? pose.pitch().doubleValue() : null)
-                   .roll(pose.roll() != null ? pose.roll().doubleValue() : null)
-                   .yaw(pose.yaw() != null ? pose.yaw().doubleValue() : null);
+                    .roll(pose.roll() != null ? pose.roll().doubleValue() : null)
+                    .yaw(pose.yaw() != null ? pose.yaw().doubleValue() : null);
         }
 
         // Occlusion detection (faces with high occlusion might be photos)
@@ -142,28 +182,28 @@ public class AwsFaceService {
         // We'll estimate occlusion based on other available features
         double estimatedOcclusion = 0.0;
         int occlusionFactors = 0;
-        
+
         // High occlusion indicators
         if (face.sunglasses() != null && face.sunglasses().value()) {
             estimatedOcclusion += 0.3; // Sunglasses indicate eye occlusion
             occlusionFactors++;
         }
-        
+
         if (face.eyeglasses() != null && face.eyeglasses().value()) {
             estimatedOcclusion += 0.1; // Eyeglasses indicate partial eye occlusion
             occlusionFactors++;
         }
-        
+
         if (face.beard() != null && face.beard().value() && face.beard().confidence() > 0.8) {
             estimatedOcclusion += 0.15; // Large beard indicates lower face occlusion
             occlusionFactors++;
         }
-        
+
         if (face.mustache() != null && face.mustache().value() && face.mustache().confidence() > 0.8) {
             estimatedOcclusion += 0.1; // Mustache indicates mouth area occlusion
             occlusionFactors++;
         }
-        
+
         double totalOcclusion = occlusionFactors > 0 ? estimatedOcclusion / occlusionFactors : 0.0;
         builder.occlusionLevel(totalOcclusion);
 
@@ -174,7 +214,7 @@ public class AwsFaceService {
                     .orElse(null);
             if (topEmotion != null) {
                 builder.topEmotion(topEmotion.type().toString())
-                       .emotionConfidence(topEmotion.confidence());
+                        .emotionConfidence(topEmotion.confidence());
             }
         }
 
@@ -182,52 +222,52 @@ public class AwsFaceService {
         if (face.ageRange() != null) {
             AgeRange ageRange = face.ageRange();
             builder.ageLow(ageRange.low())
-                   .ageHigh(ageRange.high());
+                    .ageHigh(ageRange.high());
         }
 
         // Gender
         if (face.gender() != null) {
             builder.gender(face.gender().value() != null ? face.gender().value().toString() : null)
-                   .genderConfidence(face.gender().confidence());
+                    .genderConfidence(face.gender().confidence());
         }
 
         // Facial features (beard, mustache, etc.)
         if (face.beard() != null) {
             builder.hasBeard(face.beard().value())
-                   .beardConfidence(face.beard().confidence());
+                    .beardConfidence(face.beard().confidence());
         }
 
         if (face.mustache() != null) {
             builder.hasMustache(face.mustache().value())
-                   .mustacheConfidence(face.mustache().confidence());
+                    .mustacheConfidence(face.mustache().confidence());
         }
 
         if (face.eyeglasses() != null) {
             builder.wearingEyeglasses(face.eyeglasses().value())
-                   .eyeglassesConfidence(face.eyeglasses().confidence());
+                    .eyeglassesConfidence(face.eyeglasses().confidence());
         }
 
         if (face.sunglasses() != null) {
             builder.wearingSunglasses(face.sunglasses().value())
-                   .sunglassesConfidence(face.sunglasses().confidence());
+                    .sunglassesConfidence(face.sunglasses().confidence());
         }
 
         // Smile detection
         if (face.smile() != null) {
             builder.isSmiling(face.smile().value())
-                   .smileConfidence(face.smile().confidence());
+                    .smileConfidence(face.smile().confidence());
         }
 
         // Eyes open detection
         if (face.eyesOpen() != null) {
             builder.eyesOpen(face.eyesOpen().value())
-                   .eyesOpenConfidence(face.eyesOpen().confidence());
+                    .eyesOpenConfidence(face.eyesOpen().confidence());
         }
 
         // Mouth open detection
         if (face.mouthOpen() != null) {
             builder.mouthOpen(face.mouthOpen().value())
-                   .mouthOpenConfidence(face.mouthOpen().confidence());
+                    .mouthOpenConfidence(face.mouthOpen().confidence());
         }
 
         // Calculate spoof probability based on multiple factors
@@ -239,58 +279,54 @@ public class AwsFaceService {
 
     /**
      * Calculate probability of spoofing based on various face attributes
+     * Relaxed constraints to prevent false positives on webcam feeds
      */
     private double calculateSpoofProbability(AdvancedFaceDetail face) {
         double spoofScore = 0.0;
-        int factors = 0;
 
-        // Factor 1: Low quality (blurry images often indicate photos)
-        if (face.getSharpness() != null && face.getSharpness() < 0.3) {
-            spoofScore += 0.3;
-            factors++;
-        }
-
-        // Factor 2: Extreme pose angles (unusual for live interaction)
-        if (face.getPitch() != null && Math.abs(face.getPitch()) > 45) {
-            spoofScore += 0.2;
-            factors++;
-        }
-        if (face.getYaw() != null && Math.abs(face.getYaw()) > 45) {
-            spoofScore += 0.2;
-            factors++;
-        }
-
-        // Factor 3: High occlusion (might indicate photo edges)
-        if (face.getOcclusionLevel() != null && face.getOcclusionLevel() > 0.5) {
-            spoofScore += 0.25;
-            factors++;
-        }
-
-        // Factor 4: Sunglasses (can hide spoof detection)
-        if (face.getWearingSunglasses() != null && face.getWearingSunglasses()) {
+        // Factor 1: Very Low quality (only penalize extreme blur)
+        // AWS Sharpness is 0-100. Threshold 15.0 covers very blurry faces.
+        if (face.getSharpness() != null && face.getSharpness() < 15.0) {
             spoofScore += 0.15;
-            factors++;
         }
 
-        // Factor 5: Eyes closed (common in photos)
-        if (face.getEyesOpen() != null && !face.getEyesOpen() && 
-            face.getEyesOpenConfidence() != null && face.getEyesOpenConfidence() > 0.8) {
+        // Factor 2: Extreme pose angles
+        boolean extremePose = false;
+        if ((face.getPitch() != null && Math.abs(face.getPitch()) > 45) ||
+                (face.getYaw() != null && Math.abs(face.getYaw()) > 45)) {
+            extremePose = true;
+        }
+        if (extremePose) {
+            spoofScore += 0.15;
+        }
+
+        // Factor 3: High occlusion
+        if (face.getOcclusionLevel() != null && face.getOcclusionLevel() > 0.6) {
+            spoofScore += 0.15;
+        }
+
+        // Factor 4: Sunglasses
+        if (face.getWearingSunglasses() != null && face.getWearingSunglasses()) {
             spoofScore += 0.2;
-            factors++;
         }
 
-        // Factor 6: Very small face size
+        // Factor 5: Eyes closed (suspicious but can happen naturally)
+        if (face.getEyesOpen() != null && !face.getEyesOpen() &&
+                face.getEyesOpenConfidence() != null && face.getEyesOpenConfidence() > 0.95) {
+            spoofScore += 0.05; // Lowered penalty as blinking is common
+        }
+
+        // Factor 6: Tiny face size (0-1 relative coords)
         if (face.getBoundingBox() != null) {
             BoundingBox box = face.getBoundingBox();
             double faceArea = box.width() * box.height();
-            if (faceArea < 0.05) { // Very small faces are suspicious
-                spoofScore += 0.3;
-                factors++;
+            if (faceArea < 0.005) { // <0.5% of image area is tiny
+                spoofScore += 0.15;
             }
         }
 
-        // Normalize the score
-        return factors > 0 ? spoofScore / factors : 0.0;
+        // Additive score capped at 1.0
+        return Math.min(1.0, spoofScore);
     }
 
     public IndexFacesResponse indexFace(byte[] imageBytes, String externalId) {

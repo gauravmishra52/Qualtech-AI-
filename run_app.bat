@@ -1,3 +1,0 @@
-@echo off
-echo Starting QualTech AI Face Management System...
-mvn spring-boot:run

@@ -95,8 +95,9 @@ function startAnalysisLoop() {
 
     // Analyze every 1000ms (1 FPS) for comparing two services
     analysisInterval = setInterval(async () => {
-        if (video.paused || video.ended) return;
+        if (video.paused || video.ended || isAnalyzing) return;
 
+        isAnalyzing = true;
         // Draw current frame to a temporary canvas to send to backend
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = video.videoWidth;
@@ -118,7 +119,9 @@ function startAnalysisLoop() {
             if (useAws) {
                 document.getElementById('awsStatus').className = 'badge bg-warning text-dark';
                 document.getElementById('awsStatus').innerText = 'Processing';
-                promises.push(analyzeFrame(blob, 'AWS', '#ffc107'));
+                const p = analyzeFrame(blob, 'AWS', '#ffc107');
+                p.provider = 'AWS';
+                promises.push(p);
             } else {
                 document.getElementById('awsStatus').className = 'badge bg-secondary';
                 document.getElementById('awsStatus').innerText = 'Idle';
@@ -128,7 +131,9 @@ function startAnalysisLoop() {
             if (useAzure) {
                 document.getElementById('azureStatus').className = 'badge bg-primary';
                 document.getElementById('azureStatus').innerText = 'Processing';
-                promises.push(analyzeFrame(blob, 'AZURE', '#0d6efd'));
+                const p = analyzeFrame(blob, 'AZURE', '#0d6efd');
+                p.provider = 'AZURE';
+                promises.push(p);
             } else {
                 document.getElementById('azureStatus').className = 'badge bg-secondary';
                 document.getElementById('azureStatus').innerText = 'Idle';
@@ -139,14 +144,16 @@ function startAnalysisLoop() {
                 // Wait for all active providers to complete
                 const results = await Promise.allSettled(promises);
 
-                results.forEach(result => {
+                results.forEach((result, index) => {
+                    const provider = promises[index].provider;
+                    const providerLower = provider.toLowerCase();
+                    const statusEl = document.getElementById(`${providerLower}Status`);
+
                     if (result.status === 'fulfilled' && result.value) {
-                        const { detections, provider, color, success, message } = result.value;
-                        const providerLower = provider.toLowerCase();
-                        const statusEl = document.getElementById(`${providerLower}Status`);
+                        const { detections, color, success, message } = result.value;
 
                         if (success) {
-                            statusEl.className = provider === 'AWS' ? 'badge bg-success' : 'badge bg-success';
+                            statusEl.className = 'badge bg-success';
                             statusEl.innerText = 'Active';
                             drawDetections(ctx, detections, color, provider, video.videoWidth);
                             updateStats(detections, providerLower);
@@ -156,12 +163,17 @@ function startAnalysisLoop() {
                             console.error(`${provider} API Error:`, message);
                             resetStats(providerLower);
                         }
-                    } else if (result.status === 'rejected') {
-                        console.error("Promise rejected:", result.reason);
+                    } else {
+                        statusEl.className = 'badge bg-danger';
+                        statusEl.innerText = 'Offline';
+                        console.error(`${provider} Request failed:`, result.reason || 'Unknown error');
+                        resetStats(providerLower);
                     }
                 });
+                isAnalyzing = false;
             } catch (err) {
                 console.error("Loop Error", err);
+                isAnalyzing = false;
             }
 
         }, 'image/jpeg', 0.8);
@@ -174,7 +186,7 @@ async function analyzeFrame(blob, provider, color) {
     formData.append('image', blob, 'frame.jpg');
 
     try {
-        const response = await authenticatedFetch(`/api/face/verify?provider=${provider.toUpperCase()}&live=true`, {
+        const response = await authenticatedFetch(`/api/face/verify-stream?provider=${provider.toUpperCase()}&live=true`, {
             method: 'POST',
             body: formData
         });

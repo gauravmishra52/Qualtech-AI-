@@ -30,9 +30,32 @@ public class FaceRecognitionController {
             @RequestParam(value = "position", required = false) String position,
             @RequestParam("image") MultipartFile image) throws IOException {
 
+        // MANDATORY VALIDATIONS for face registration
+        if (name == null || name.trim().isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        if (email == null || email.trim().isEmpty() || !email.contains("@")) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        if (image == null || image.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        // Image size ≥ 50 KB
+        if (image.getSize() < 50 * 1024) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        // Basic image validation (more detailed validation in service layer)
+        if (image.getContentType() == null || !image.getContentType().startsWith("image/")) {
+            return ResponseEntity.badRequest().build();
+        }
+
         FaceRegistrationRequest request = new FaceRegistrationRequest();
-        request.setName(name);
-        request.setEmail(email);
+        request.setName(name.trim());
+        request.setEmail(email.trim().toLowerCase());
         request.setDepartment(department);
         request.setPosition(position);
         request.setImage(image);
@@ -54,6 +77,9 @@ public class FaceRecognitionController {
         request.setLive(live);
 
         FaceVerificationResponse response = faceRecognitionService.verifyFace(request);
+        if ("Verification in progress".equals(response.getMessage())) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
+        }
         return ResponseEntity.ok(response);
     }
 
@@ -83,7 +109,7 @@ public class FaceRecognitionController {
             @RequestParam(value = "provider", required = false, defaultValue = "LOCAL") com.qualtech_ai.enums.FaceProvider provider,
             @RequestParam(value = "live", required = false, defaultValue = "true") boolean live)
             throws IOException {
-        
+
         // Stream mode - optimized for real-time performance
         FaceVerificationRequest request = new FaceVerificationRequest();
         request.setImage(image);
@@ -91,6 +117,9 @@ public class FaceRecognitionController {
         request.setLive(live);
 
         FaceVerificationResponse response = faceRecognitionService.verifyFaceStream(request);
+        if ("Verification in progress".equals(response.getMessage())) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
+        }
         return ResponseEntity.ok(response);
     }
 

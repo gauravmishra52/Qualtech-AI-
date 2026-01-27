@@ -37,12 +37,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             token = authHeader.substring(7);
-            logger.debug("JWT Token found in header: {}" + token.substring(0, Math.min(token.length(), 10)) + "...");
+            String safeToken = token.length() > 10 ? token.substring(0, 10) : token;
+            logger.debug("JWT Token found in header: " + safeToken + "...");
             try {
                 // Validate the token first
                 if (jwtUtil.validateToken(token)) {
                     username = jwtUtil.extractUsername(token);
-                    logger.debug("Successfully extracted username from JWT: {}" + username);
+                    logger.debug("Successfully extracted username from JWT: " + username);
                 } else {
                     logger.warn("JWT validation failed for token");
                 }
@@ -53,12 +54,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (authHeader == null) {
                 logger.debug("No Authorization header found in request");
             } else {
-                logger.warn("Authorization header does not start with Bearer: {}" + authHeader);
+                logger.warn("Authorization header does not start with Bearer: " + authHeader);
             }
         }
 
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            logger.debug("Setting up SecurityContext for user: {}" + username);
+            logger.debug("Setting up SecurityContext for user: " + username);
             UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
             // If token is valid, configure Spring Security to manually set authentication
@@ -72,9 +73,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         new WebAuthenticationDetailsSource().buildDetails(request));
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-                logger.debug("Successfully set Authentication in SecurityContext for user: {}" + username);
+                logger.debug("Successfully set Authentication in SecurityContext for user: " + username);
             } else {
-                logger.warn("Final JWT validation with user details failed for user: {}" + username);
+                logger.warn("Final JWT validation with user details failed for user: " + username);
             }
         }
 

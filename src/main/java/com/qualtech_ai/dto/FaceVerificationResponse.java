@@ -18,9 +18,11 @@ public class FaceVerificationResponse {
     @Builder.Default
     private List<FaceDetectionResult> detections = new ArrayList<>();
 
-    // For backward compatibility
+    // For backward compatibility and single-user response contract
     private FaceUser user;
     private double confidence;
+    private boolean authorized;
+    private String provider;
 
     public static FaceVerificationResponse success(List<FaceDetectionResult> detections) {
         FaceVerificationResponse response = new FaceVerificationResponse();
@@ -28,11 +30,13 @@ public class FaceVerificationResponse {
         response.setMessage("Face(s) analyzed successfully");
         response.setDetections(detections);
 
-        // Populate first detection for backward compatibility
+        // Populate first detection for contract compliance
         if (!detections.isEmpty()) {
             FaceDetectionResult first = detections.get(0);
             response.setUser(first.getUser());
-            response.setConfidence(first.getConfidence());
+            response.setConfidence(first.getConfidence() / 100.0); // Convert to 0-1 range for contract
+            response.setAuthorized(first.isAuthorized());
+            response.setProvider(first.getProvider());
         }
 
         return response;
@@ -44,5 +48,11 @@ public class FaceVerificationResponse {
         response.setMessage(message);
         response.setDetections(new ArrayList<>());
         return response;
+    }
+
+    public boolean hasAuthorizedUser() {
+        if (detections == null || detections.isEmpty())
+            return false;
+        return detections.stream().anyMatch(FaceDetectionResult::isAuthorized);
     }
 }

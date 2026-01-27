@@ -23,11 +23,14 @@ spring:
     password: ${DB_PASSWORD:5213}
     driver-class-name: org.postgresql.Driver
     hikari:
-      connection-timeout: 30000
-      maximum-pool-size: 10
+      maximum-pool-size: 20
       minimum-idle: 5
-      idle-timeout: 30000
-      max-lifetime: 2000000
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      validation-timeout: 5000
+      leak-detection-threshold: 20000
+      auto-commit: false
 
   # JPA/Hibernate Configuration
   jpa:
@@ -37,11 +40,17 @@ spring:
     open-in-view: false
     properties:
       hibernate:
-        format_sql: true
+        '[format_sql]': true
         # dialect removed as it is auto-detected
         jdbc:
           lob:
-            non_contextual_creation: true
+            '[non_contextual_creation]': true
+          '[batch_size]': 25
+          '[order_inserts]': true
+          '[order_updates]': true
+        connection:
+          '[provider_disables_autocommit]': true
+        '[batch_versioned_data]': true
 
   # Thymeleaf Configuration
   thymeleaf:
@@ -53,7 +62,7 @@ spring:
     baseline-on-migrate: true
     locations: classpath:db/migration
     validate-on-migrate: false
-    clean-on-validation-error: false
+
 
   mail:
     host: ${EMAIL_HOST:smtp.gmail.com}
@@ -98,12 +107,29 @@ aws:
 # Face Recognition Configuration
 face:
   recognition:
+    # Fixed threshold for stabilization (adaptive disabled)
+    threshold: 0.85
     # These properties are currently hardcoded in FaceRecognitionServiceImpl.java
     # model-path: classpath:face_models/deploy.prototxt
     # weights-path: classpath:face_models/res10_300x300_ssd_iter_140000.caffemodel
     # match-threshold: 0.6
     # max-faces: 10
-    # min-face-size: 100  
+    # min-face-size: 100
+    # Adaptive threshold configuration (DISABLED for stabilization)
+    # threshold:
+    #   normal: 0.8
+    #   low-light: 0.7
+    #   very-low-light: 0.6
+    # Multi-frame verification configuration
+    verification:
+      multi-frame:
+        count: 3
+        timeout-ms: 2000
+        majority-threshold: 0.6
+    # Silent self-improvement configuration
+    self-improvement:
+      high-confidence-threshold: 0.95
+      min-attempts: 5  
 
 
 
@@ -137,15 +163,17 @@ app:
 logging:
   level:
     root: INFO
-    org.springframework: INFO
-    org.hibernate.SQL: false
-    org.hibernate.type.descriptor.sql.BasicBinder: false
-    org.springframework.security: INFO
-    org.springframework.web: INFO
-    org.springframework.mail: ${LOG_LEVEL_MAIL:DEBUG}
-    com.sun.mail: ${LOG_LEVEL_MAIL:DEBUG}
-    com.qualtech_ai: ${LOG_LEVEL_APP:DEBUG}
-    software.amazon.awssdk: ${LOG_LEVEL_AWS:INFO}
+    '[org.springframework]': INFO
+    '[org.springframework.transaction]': TRACE
+    '[org.hibernate.SQL]': DEBUG
+    '[com.zaxxer.hikari]': DEBUG
+    '[org.hibernate.type.descriptor.sql.BasicBinder]': false
+    '[org.springframework.security]': INFO
+    '[org.springframework.web]': INFO
+    '[org.springframework.mail]': ${LOG_LEVEL_MAIL:DEBUG}
+    '[com.sun.mail]': ${LOG_LEVEL_MAIL:DEBUG}
+    '[com.qualtech_ai]': ${LOG_LEVEL_APP:DEBUG}
+    '[software.amazon.awssdk]': ${LOG_LEVEL_AWS:INFO}
 
 # Azure Configuration
 azure:
@@ -161,6 +189,7 @@ azure:
   face:  # Added for face recognition if needed
     key: ${AZURE_FACE_KEY:}
     endpoint: ${AZURE_FACE_ENDPOINT:}
+    enabled: true  # Enabled for face recognition
 
 # Analysis Provider Selection
 analysis:

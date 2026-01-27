@@ -37,13 +37,13 @@ class FaceAuth {
     }
 
     startLivenessCheck() {
-        // This would be replaced with actual face detection and liveness logic
-        // For now, we'll simulate the process
+        // CRITICAL FIX: Rate-limited verification (1 request per 2s, NOT 10/second!)
+        // Prevents: Circuit breaker failures, AWS cost spikes, poor recognition
         this.livenessCheckInterval = setInterval(() => {
-            if (!this.isProcessing) {
+            if (!this.isProcessing && !this.authenticated) {
                 this.processFrame();
             }
-        }, 100);
+        }, 2000); // Changed from 100ms to 2000ms (2 seconds)
     }
 
     async processFrame() {
@@ -77,6 +77,12 @@ class FaceAuth {
                 body: formData
             });
 
+            if (response.status === 429) {
+                console.debug('Server is processing another frame, skipping...');
+                this.isProcessing = false;
+                return;
+            }
+
             if (response.ok) {
                 const result = await response.json();
                 this.handleVerificationResult(result);
@@ -91,6 +97,14 @@ class FaceAuth {
     handleVerificationResult(result) {
         // Clear previous drawing (keep the image)
         this.ctx.drawImage(this.video, 0, 0, this.canvas.width, this.canvas.height);
+
+        // Root-level authorization check (Production contract)
+        if (result.authorized && result.user) {
+            this.faceDetected = true;
+            this.updateUI('livenessPassed');
+            this.completeAuthentication(result.user);
+            return;
+        }
 
         if (!result.detections || result.detections.length === 0) {
             this.updateUI('noFace');

@@ -8,44 +8,32 @@ import com.azure.ai.vision.face.FaceClient;
 import com.azure.ai.vision.face.FaceClientBuilder;
 import com.azure.core.credential.AzureKeyCredential;
 import com.microsoft.cognitiveservices.speech.SpeechConfig;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import com.azure.core.http.HttpHeaderName;
+import com.azure.core.http.HttpHeaders;
+import com.azure.core.http.policy.AddHeadersPolicy;
+import com.azure.core.http.policy.RequestIdPolicy;
+import com.azure.core.http.policy.UserAgentPolicy;
+
 @Slf4j
 @Configuration
+@RequiredArgsConstructor
 public class AzureConfig {
 
-    @Value("${azure.storage.connection-string:}")
-    private String storageConnectionString;
-
-    @Value("${azure.speech.key:}")
-    private String speechKey;
-
-    @Value("${azure.speech.region:}")
-    private String speechRegion;
-
-    @Value("${azure.language.key:}")
-    private String languageKey;
-
-    @Value("${azure.language.endpoint:}")
-    private String languageEndpoint;
-
-    @Value("${azure.face.key:}")
-    private String faceKey;
-
-    @Value("${azure.face.endpoint:}")
-    private String faceEndpoint;
+    private final AzureProperties azureProperties;
 
     @Bean
     public BlobServiceClient blobServiceClient() {
-        if (isInvalid(storageConnectionString)) {
+        if (isInvalid(azureProperties.getStorage().getConnectionString())) {
             return null;
         }
         try {
             return new BlobServiceClientBuilder()
-                    .connectionString(storageConnectionString)
+                    .connectionString(azureProperties.getStorage().getConnectionString())
                     .buildClient();
         } catch (Exception e) {
             log.warn(
@@ -57,13 +45,15 @@ public class AzureConfig {
 
     @Bean
     public TextAnalyticsClient textAnalyticsClient() {
-        if (isInvalid(languageKey) || isInvalid(languageEndpoint)) {
+        String key = azureProperties.getLanguage().getKey();
+        String endpoint = azureProperties.getLanguage().getEndpoint();
+        if (isInvalid(key) || isInvalid(endpoint)) {
             return null;
         }
         try {
             return new TextAnalyticsClientBuilder()
-                    .credential(new AzureKeyCredential(languageKey))
-                    .endpoint(languageEndpoint)
+                    .credential(new AzureKeyCredential(key))
+                    .endpoint(endpoint)
                     .buildClient();
         } catch (Exception e) {
             log.warn(
@@ -75,11 +65,13 @@ public class AzureConfig {
 
     @Bean
     public SpeechConfig speechConfig() {
-        if (isInvalid(speechKey) || isInvalid(speechRegion)) {
+        String key = azureProperties.getSpeech().getKey();
+        String region = azureProperties.getSpeech().getRegion();
+        if (isInvalid(key) || isInvalid(region)) {
             return null;
         }
         try {
-            return SpeechConfig.fromSubscription(speechKey, speechRegion);
+            return SpeechConfig.fromSubscription(key, region);
         } catch (Exception e) {
             log.warn("Failed to initialize Azure Speech Config. Speech features will be disabled. Error: {}",
                     e.getMessage());
@@ -89,14 +81,47 @@ public class AzureConfig {
 
     @Bean
     public FaceClient faceClient() {
-        if (isInvalid(faceKey) || isInvalid(faceEndpoint)) {
+        String key = azureProperties.getFace().getKey();
+        String endpoint = azureProperties.getFace().getEndpoint();
+
+        // DEBUG: Log Azure credentials status
+        log.info("=== AZURE FACE API CONFIGURATION DEBUG ===");
+        log.info("Face Key present: {}", key != null && !key.isEmpty());
+        log.info("Face Key length: {}", key != null ? key.length() : 0);
+        log.info("Face Key first 10 chars: {}",
+                key != null && key.length() > 10 ? key.substring(0, 10) + "..." : "NULL");
+        log.info("Face Endpoint: {}", endpoint);
+        log.info("Is Invalid Check (Key): {}", isInvalid(key));
+        log.info("Is Invalid Check (Endpoint): {}", isInvalid(endpoint));
+
+        if (isInvalid(key) || isInvalid(endpoint)) {
+            log.warn("Azure Face Client NOT initialized - missing or invalid credentials");
             return null;
         }
         try {
+            // CRITICAL: Custom Pipeline to disable Retries and prevent Netty crashes
+            // This fixes the "channel not registered to an event loop" error
+            com.azure.core.http.HttpClient nettyClient = new com.azure.core.http.netty.NettyAsyncHttpClientBuilder()
+                    .eventLoopGroup(new io.netty.channel.nio.NioEventLoopGroup(1)) // Dedicated loop
+                    .build();
+
+            com.azure.core.http.HttpPipeline pipeline = new com.azure.core.http.HttpPipelineBuilder()
+                    .policies(
+                            new UserAgentPolicy(),
+                            new RequestIdPolicy(),
+                            new AddHeadersPolicy(
+                                    new HttpHeaders().set(HttpHeaderName.CONNECTION, "keep-alive"))
+                    // EXPLICITLY REMOVED RetryPolicy to stop cascade failures
+                    )
+                    .httpClient(nettyClient)
+                    .build();
+
             return new FaceClientBuilder()
-                    .endpoint(faceEndpoint)
-                    .credential(new AzureKeyCredential(faceKey))
+                    .endpoint(endpoint)
+                    .credential(new AzureKeyCredential(key))
+                    .pipeline(pipeline)
                     .buildClient();
+
         } catch (Exception e) {
             log.warn("Failed to initialize Azure Face Client. Face features will be disabled. Error: {}",
                     e.getMessage());
