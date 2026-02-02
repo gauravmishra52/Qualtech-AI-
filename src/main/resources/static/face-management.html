@@ -257,16 +257,40 @@
                                             class="bi bi-person-plus-fill me-2 text-primary"></i>Register New Face</h5>
                                     <form id="faceRegistrationForm">
                                         <div class="text-center mb-4">
-                                            <div class="preview-container" id="imagePreviewContainer">
+                                            <div class="preview-container" id="imagePreviewContainer" style="position: relative;">
                                                 <i class="bi bi-camera text-muted fs-1" id="placeholderIcon"></i>
-                                                <img id="imagePreview" src="" alt="Preview" style="display: none;">
+                                                <img id="imagePreview" src="" alt="Preview" style="display: none; width: 100%; height: 100%; object-fit: cover;">
+                                                <video id="registrationCamera" autoplay playsinline
+                                                    style="display: none; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1);"></video>
+                                                <canvas id="registrationCanvas" style="display: none;"></canvas>
                                             </div>
-                                            <button type="button" class="btn btn-outline-primary btn-sm rounded-pill"
-                                                onclick="document.getElementById('faceImage').click()">
-                                                <i class="bi bi-upload me-2"></i>Select Image
-                                            </button>
-                                            <input type="file" id="faceImage" accept="image/*" style="display: none;"
-                                                required>
+
+                                            <div class="d-flex justify-content-center gap-2" id="uploadControls">
+                                                <button type="button" class="btn btn-outline-primary btn-sm rounded-pill"
+                                                    id="btnSelectImage"
+                                                    onclick="document.getElementById('faceImage').click()">
+                                                    <i class="bi bi-upload me-2"></i>Select Image
+                                                </button>
+                                                <button type="button"
+                                                    class="btn btn-outline-secondary btn-sm rounded-pill"
+                                                    id="btnUseCamera" onclick="startRegistrationCamera()">
+                                                    <i class="bi bi-camera-video me-2"></i>Use Camera
+                                                </button>
+                                            </div>
+
+                                            <div class="d-flex justify-content-center gap-2" id="cameraControls"
+                                                style="display: none;">
+                                                <button type="button" class="btn btn-danger btn-sm rounded-pill"
+                                                    onclick="captureRegistrationPhoto()">
+                                                    <i class="bi bi-camera me-2"></i>Capture
+                                                </button>
+                                                <button type="button" class="btn btn-secondary btn-sm rounded-pill"
+                                                    onclick="stopRegistrationCamera()">
+                                                    Cancel
+                                                </button>
+                                            </div>
+
+                                            <input type="file" id="faceImage" accept="image/*" style="display: none;" required>
                                             <div class="form-text mt-2">Upload a clear front-facing photo</div>
                                         </div>
 

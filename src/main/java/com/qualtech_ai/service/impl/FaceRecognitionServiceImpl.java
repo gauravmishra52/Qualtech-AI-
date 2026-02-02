@@ -13,6 +13,7 @@ import com.qualtech_ai.exception.ResourceNotFoundException;
 import com.qualtech_ai.repository.FaceUserRepository;
 import com.qualtech_ai.projection.FaceEmbeddingView;
 import com.qualtech_ai.service.FaceRecognitionService;
+import com.qualtech_ai.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bytedeco.javacpp.BytePointer;
@@ -68,9 +69,9 @@ import static org.bytedeco.opencv.global.opencv_imgcodecs.IMREAD_COLOR;
 @Service
 @RequiredArgsConstructor
 public class FaceRecognitionServiceImpl implements FaceRecognitionService {
-    private static final double FACE_MATCH_THRESHOLD = 0.5; // Reduced threshold for better recognition
+    private static final double FACE_MATCH_THRESHOLD = 0.55; // Slightly adjusted for speed
 
-    private static final double FACE_DETECTION_CONFIDENCE = 0.4; // Reduced for more sensitive detection
+    private static final double FACE_DETECTION_CONFIDENCE = 0.45; // Refined for faster detection
     private static final int MAX_FACES_TO_PROCESS = 3; // Limit for real-time performance
     private static final double AUTH_SCORE_THRESHOLD = 0.7; // Weighted score threshold for authorization
 
@@ -85,7 +86,8 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
     // Performance optimization constants
     private static final int FACE_SIZE_THRESHOLD = 40; // Minimum face size for detection
-    private static final double LIVENESS_THRESHOLD = 15.0; // Significantly reduced to prevent false negatives on webcam
+    private static final double LIVENESS_THRESHOLD = 50.0; // Increased even further for maximum security against
+                                                           // spoofing
 
     private final FaceUserRepository faceUserRepository;
     private final S3Service s3Service;
@@ -144,6 +146,9 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
         // 3️⃣ Duplicate check (READ-ONLY DB)
         checkDuplicate(data.faceEmbedding());
+
+        // 3.5 Check for duplicates in AWS (Deep Fix)
+        checkAwsDuplicate(request.getImage());
 
         // 4️⃣ Create user (TX)
         FaceUser user = faceUserTxService.createUser(request, data.base64Image());
@@ -278,12 +283,12 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             // azureFuture = azureFaceService
             // .detectFacesSafe(imageBytes);
 
-            // Wait for AWS (Primary)
+            // Wait for AWS (Primary) with a shorter timeout for better real-time feel
             software.amazon.awssdk.services.rekognition.model.SearchFacesByImageResponse awsResponse = null;
             try {
-                awsResponse = awsFuture.get(8, TimeUnit.SECONDS);
+                awsResponse = awsFuture.get(3, TimeUnit.SECONDS); // Reduced from 8s to 3s for faster feedback
             } catch (Exception e) {
-                log.error("AWS Service call failed or timed out: {}", e.getMessage());
+                log.warn("AWS Search timed out or failed (3s limit): {}", e.getMessage());
             }
 
             boolean awsAvailable = awsFaceService.isAvailable();
@@ -673,27 +678,8 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
      * Fast liveness detection for real-time performance
      */
     private double calculateLivenessFast(Mat face) {
-        Mat gray = new Mat();
-        Mat laplacian = new Mat();
-
-        try {
-            // Simplified liveness detection - focus on blur detection only
-            opencv_imgproc.cvtColor(face, gray, opencv_imgproc.COLOR_BGR2GRAY);
-            opencv_imgproc.Laplacian(gray, laplacian, opencv_core.CV_64F);
-
-            Mat mean = new Mat();
-            Mat stddev = new Mat();
-            opencv_core.meanStdDev(laplacian, mean, stddev);
-            double textureScore = Math.pow(stddev.createIndexer().getDouble(0), 2);
-
-            return textureScore;
-        } catch (Exception e) {
-            log.error("Error in fast liveness calculation: {}", e.getMessage());
-            return 0.0;
-        } finally {
-            gray.release();
-            laplacian.release();
-        }
+        // Use the robust implementation for consistency
+        return calculateLiveness(face);
     }
 
     /**
@@ -835,6 +821,8 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 features[idx++] = (float) mean.createIndexer().getDouble(0);
                 features[idx++] = (float) stddev.createIndexer().getDouble(0);
 
+                mean.release();
+                stddev.release();
                 cell.release();
             }
         }
@@ -957,69 +945,120 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     /**
      * Calculate liveness using Laplacian Variance (Blur detection)
      */
+    /**
+     * Calculate liveness score (0-100) with strict anti-spoofing for screens and
+     * frames
+     */
     private double calculateLiveness(Mat face) {
-        // Enhanced liveness detection: Multiple anti-spoofing techniques
         Mat gray = new Mat();
         Mat laplacian = new Mat();
-
         Mat hsv = new Mat();
-        Mat edges = new Mat();
+        Mat reflectionMask = new Mat();
+        MatVector channels = new MatVector();
+
         try {
-            // 1. Texture analysis (Blur detection) - photos/screens are often blurry
+            // 1. Texture/Sharpness Analysis (Laplacian Variance)
             opencv_imgproc.cvtColor(face, gray, opencv_imgproc.COLOR_BGR2GRAY);
             opencv_imgproc.Laplacian(gray, laplacian, opencv_core.CV_64F);
+
+            double variance = 0;
             Mat mean = new Mat();
             Mat stddev = new Mat();
-            opencv_core.meanStdDev(laplacian, mean, stddev);
-            double textureScore = Math.pow(stddev.createIndexer().getDouble(0), 2);
-
-            // 2. Edge detection - photos have fewer natural edges than real faces
-            opencv_imgproc.Canny(gray, edges, 50, 150);
-            double edgeDensity = (double) opencv_core.countNonZero(edges) / (face.rows() * face.cols());
-
-            // 3. Skin Color Check (HSV range for human skin)
-            opencv_imgproc.cvtColor(face, hsv, opencv_imgproc.COLOR_BGR2HSV);
-            Mat skinMask = new Mat();
-            // Typical human skin HSV range: H: 0-20, S: 30-150, V: 60-255
-            opencv_core.inRange(hsv,
-                    new Mat(new Scalar(0, 30, 60, 0)),
-                    new Mat(new Scalar(20, 150, 255, 0)),
-                    skinMask);
-
-            double skinPixelRatio = (double) opencv_core.countNonZero(skinMask) / (face.rows() * face.cols());
-            skinMask.release();
-
-            // 4. Reflection detection - screens have reflections
-            Mat reflectionMask = new Mat();
-            opencv_core.inRange(hsv,
-                    new Mat(new Scalar(0, 0, 200, 0)), // Very bright values indicate reflections
-                    new Mat(new Scalar(180, 50, 255, 0)),
-                    reflectionMask);
-            double reflectionRatio = (double) opencv_core.countNonZero(reflectionMask) / (face.rows() * face.cols());
-            reflectionMask.release();
-
-            // Combined scoring: High texture + good skin ratio + moderate edges + low
-            // reflections = live person
-            double combinedScore = textureScore * (0.6 + skinPixelRatio * 0.3) * (1.0 + edgeDensity * 0.1);
-
-            // Penalize for reflections (indicates screen), but be less aggressive
-            if (reflectionRatio > 0.25) {
-                combinedScore *= 0.8; // Reduced penalty magnitude
+            try {
+                opencv_core.meanStdDev(laplacian, mean, stddev);
+                variance = Math.pow(stddev.createIndexer().getDouble(0), 2);
+            } finally {
+                mean.release();
+                stddev.release();
             }
 
-            log.info(
-                    "Enhanced liveness analysis: Texture={:.2f}, SkinRatio={:.2f}, EdgeDensity={:.2f}, ReflectionRatio={:.2f}, Final={:.2f}, Threshold={}",
-                    textureScore, skinPixelRatio, edgeDensity, reflectionRatio, combinedScore, LIVENESS_THRESHOLD);
+            // normalize variance to 0-100 scale (approximate typical webcam range 50-800)
+            double textureScore = Math.min(100, Math.max(0, (variance - 50) / 7.5));
 
-            return combinedScore;
+            // 2. Reflection Detection (Glare from screens or glass frames)
+            opencv_imgproc.cvtColor(face, hsv, opencv_imgproc.COLOR_BGR2HSV);
+
+            opencv_core.inRange(hsv,
+                    new Mat(new Scalar(0, 0, 220, 0)), // High Value (Brightness)
+                    new Mat(new Scalar(180, 50, 255, 0)), // Low Saturation (White/Glare)
+                    reflectionMask);
+            double reflectionRatio = (double) opencv_core.countNonZero(reflectionMask) / (face.rows() * face.cols());
+
+            // 3. Color Balance Analysis (Screens often emit excessive Blue light)
+            opencv_core.split(face, channels);
+
+            double rToB = 1.0;
+            Mat bMean = new Mat(), rMean = new Mat();
+            Mat bStd = new Mat(), rStd = new Mat();
+            try {
+                opencv_core.meanStdDev(channels.get(0), bMean, bStd); // Blue channel
+                opencv_core.meanStdDev(channels.get(2), rMean, rStd); // Red channel
+
+                double blueAvg = bMean.createIndexer().getDouble(0);
+                double redAvg = rMean.createIndexer().getDouble(0);
+
+                rToB = (blueAvg > 0) ? redAvg / blueAvg : 1.0;
+            } finally {
+                bMean.release();
+                rMean.release();
+                bStd.release();
+                rStd.release();
+            }
+
+            // --- SCORING LOGIC ---
+
+            double finalScore = 60.0; // Start with base score
+
+            // Bonus: Good Texture (Real skin has texture, not too smooth, not too grainy)
+            if (variance > 100 && variance < 1000) {
+                finalScore += 20.0;
+            }
+
+            // Bonus: Healthy Skin Tone (Red > Blue)
+            if (rToB > 1.1 && rToB < 2.5) {
+                finalScore += 20.0;
+            }
+
+            // --- PENALTIES (Strict Gates) ---
+
+            // Penalty: Blue Light (Screen indication)
+            if (rToB <= 1.2) { // Increased threshold - screens are significantly bluer
+                finalScore -= 50.0; // increased penalty
+                log.debug("Liveness Penalty: Blue light detected (R/B ratio: {:.2f})", rToB);
+            }
+
+            // Penalty: Reflections (Screen/Glass)
+            if (reflectionRatio > 0.04) { // Stricter threshold
+                finalScore -= 100.0; // Immediate fail
+                log.debug("Liveness Penalty: High reflection detected ({:.1f}%)", reflectionRatio * 100);
+            } else if (reflectionRatio > 0.005) { // Very sensitive to minor glare
+                finalScore -= 30.0;
+            }
+
+            // Penalty: Too Smooth (Blurry Photo) or Too Grainy (Noise)
+            if (variance < 50) {
+                finalScore -= 40.0; // Too blurry/smooth
+            } else if (variance > 2000) {
+                finalScore -= 20.0; // Too noisy/grainy
+            }
+
+            // Clamp 0-100
+            finalScore = Math.max(0, Math.min(100, finalScore));
+
+            log.info("Liveness Check: Score={:.1f} (Tex={:.1f}, Var={:.0f}, Reflect={:.1f}%, R/B={:.2f})",
+                    finalScore, textureScore, variance, reflectionRatio * 100, rToB);
+
+            return finalScore;
+
         } catch (Exception e) {
             log.error("Error calculating liveness: {}", e.getMessage());
-            return 0.0;
+            return 0.0; // Fail safe
         } finally {
             gray.release();
             laplacian.release();
             hsv.release();
-            edges.release();
+            reflectionMask.release();
+            channels.close(); // Important: release split channels
         }
     }
 
@@ -1034,12 +1073,18 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             opencv_imgproc.cvtColor(face, gray, opencv_imgproc.COLOR_BGR2GRAY);
 
             // Calculate global intensity and variance
+            double avgIntensity = 0;
+            double variance = 0;
             Mat mean = new Mat();
             Mat stddev = new Mat();
-            opencv_core.meanStdDev(gray, mean, stddev);
-
-            double avgIntensity = mean.createIndexer().getDouble(0);
-            double variance = Math.pow(stddev.createIndexer().getDouble(0), 2);
+            try {
+                opencv_core.meanStdDev(gray, mean, stddev);
+                avgIntensity = mean.createIndexer().getDouble(0);
+                variance = Math.pow(stddev.createIndexer().getDouble(0), 2);
+            } finally {
+                mean.release();
+                stddev.release();
+            }
 
             // Analyze mouth region (lower 3rd of face ROI)
             int mouthY = (int) (gray.rows() * 0.7);
@@ -1209,8 +1254,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                     // adaptiveThresholdService.calculateAdaptiveThreshold(
                     // preprocessedImage, userId);
 
-                    // 1. Identity Score (60% weight) - Logarithmic scaling if needed, but linear is
-                    // fine for now
+                    // 1. Identity Score (60% weight)
                     // Ensure confidence is 0.0-1.0
                     double identityScore = confidence * 0.6;
 
@@ -1223,21 +1267,17 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                     // Calculate Base Score
                     double totalScore = identityScore + livenessComponent + qualityComponent;
 
-                    // 4. Penalties
-                    // Spoof Penalty (instead of hard reject)
+                    // Final Decision Logic
+                    // SECURITY CRITICAL: Strict Liveness Gates
                     if (isSpoofed) {
-                        double penalty = 0.2; // 20% penalty
-                        if (spoofProbability > 0.8)
-                            penalty = 0.4; // Higher penalty for high probability
-                        totalScore -= penalty;
-                        log.warn("Spoof detected for user {}, applying penalty: -{}", userId, penalty);
+                        authorized = false;
+                        log.warn("SECURITY ALERT: AWS Spoof detection triggered for user {}. Access Denied.", userId);
+                    } else if (!isLive) {
+                        authorized = false;
+                        log.warn("SECURITY ALERT: Local Liveness check failed for user {}. Access Denied.", userId);
+                    } else {
+                        authorized = totalScore >= AUTH_SCORE_THRESHOLD;
                     }
-
-                    // Lighting Penalty (Reflections, etc) used in liveness, but redundant here if
-                    // liveness is false.
-
-                    // Final Decision
-                    authorized = totalScore >= AUTH_SCORE_THRESHOLD;
 
                     log.info(
                             "Auth Decision - User: {}, TotalScore: {:.3f} (Threshold: {}), Breakdown: [Id: {:.2f}, Live: {:.2f}, Qual: {:.2f}, SpoofPenalty: {}] -> Authorized: {}",
@@ -1706,12 +1746,36 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
         List<FaceEmbeddingView> existingEmbeddings = faceUserRepository.findAllEmbeddings();
 
         for (FaceEmbeddingView view : existingEmbeddings) {
-            if (compareFaceEmbeddings(embedding, view.getFaceEmbedding()) >= 0.9) {
-                log.warn("Duplicate face detected during registration");
-                throw new IllegalArgumentException("User already registered (Face match)");
+            if (compareFaceEmbeddings(embedding, view.getFaceEmbedding()) >= FACE_MATCH_THRESHOLD) {
+                log.warn("Duplicate face detected during registration (Local Check)");
+                throw new CustomException("This face is already registered in the system (Local Match).");
             }
         }
 
-        log.debug("No duplicate faces found");
+        log.debug("No duplicate faces found locally");
+    }
+
+    /**
+     * Check for duplicate faces using AWS Rekognition (Deep Fix)
+     */
+    private void checkAwsDuplicate(MultipartFile image) {
+        if (awsFaceService.isAvailable()) {
+            try {
+                software.amazon.awssdk.services.rekognition.model.SearchFacesByImageResponse response = awsFaceService
+                        .searchFace(image.getBytes());
+
+                if (response != null && !response.faceMatches().isEmpty()) {
+                    float similarity = response.faceMatches().get(0).similarity();
+                    log.warn("Duplicate face detected in AWS with similarity: {}", similarity);
+                    throw new CustomException("This face is already authorized in the system (Cloud Match).");
+                }
+            } catch (IOException e) {
+                log.error("Error reading image for AWS check", e);
+            } catch (Exception e) {
+                if (e instanceof CustomException)
+                    throw e;
+                log.warn("AWS duplicate check skipped due to error: {}", e.getMessage());
+            }
+        }
     }
 }

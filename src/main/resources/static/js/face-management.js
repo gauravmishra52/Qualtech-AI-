@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 let stream = null;
+let registrationStream = null;
 let analysisInterval = null;
 let isAnalyzing = false;
 
@@ -26,6 +27,7 @@ function showSection(sectionId) {
     if (sectionId !== 'live') {
         stopCamera();
     }
+    stopRegistrationCamera();
 
     // Show requested section
     if (sectionId === 'selection') {
@@ -550,4 +552,92 @@ function showAlert(message, type = 'success') {
 function logout() {
     localStorage.clear();
     window.location.href = '/';
+}
+
+// --- Registration Camera Functions ---
+
+function startRegistrationCamera() {
+    const video = document.getElementById('registrationCamera');
+    const placeholder = document.getElementById('placeholderIcon');
+    const preview = document.getElementById('imagePreview');
+    const uploadControls = document.getElementById('uploadControls');
+    const cameraControls = document.getElementById('cameraControls');
+
+    // UI Updates
+    placeholder.style.display = 'none';
+    preview.style.display = 'none';
+    video.style.display = 'block';
+    uploadControls.style.display = 'none';
+    cameraControls.style.display = 'flex';
+
+    navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => {
+            registrationStream = stream;
+            video.srcObject = stream;
+        })
+        .catch(err => {
+            console.error("Error accessing camera:", err);
+            showAlert("Could not access camera", "danger");
+            stopRegistrationCamera();
+        });
+}
+
+function stopRegistrationCamera() {
+    const video = document.getElementById('registrationCamera');
+    const placeholder = document.getElementById('placeholderIcon');
+    const preview = document.getElementById('imagePreview');
+    const uploadControls = document.getElementById('uploadControls');
+    const cameraControls = document.getElementById('cameraControls');
+
+    if (registrationStream) {
+        registrationStream.getTracks().forEach(track => track.stop());
+        registrationStream = null;
+    }
+    video.srcObject = null;
+    video.style.display = 'none';
+
+    uploadControls.style.display = 'flex';
+    cameraControls.style.display = 'none';
+
+    // Show preview if image exists, otherwise placeholder
+    if (preview.src && preview.src !== '' && preview.src !== window.location.href) {
+        preview.style.display = 'block';
+        placeholder.style.display = 'none';
+    } else {
+        placeholder.style.display = 'block';
+        preview.style.display = 'none';
+    }
+}
+
+function captureRegistrationPhoto() {
+    const video = document.getElementById('registrationCamera');
+    const canvas = document.getElementById('registrationCanvas');
+    const fileInput = document.getElementById('faceImage');
+    const preview = document.getElementById('imagePreview');
+
+    if (!video.videoWidth) return; // Camera not ready
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+
+    // Draw directly (not mirrored)
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(blob => {
+        const file = new File([blob], "camera_capture_" + Date.now() + ".jpg", { type: "image/jpeg" });
+
+        // Update File Input
+        const dataTransfer = new DataTransfer();
+        dataTransfer.items.add(file);
+        fileInput.files = dataTransfer.files;
+
+        // Update UI Preview
+        const url = URL.createObjectURL(file);
+        preview.src = url;
+
+        // Stop camera and show preview
+        stopRegistrationCamera();
+
+    }, 'image/jpeg', 0.95);
 }
