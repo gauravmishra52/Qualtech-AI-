@@ -164,11 +164,39 @@ public class MultiFrameVerificationService {
         List<FaceDetectionResult> finalResults = new ArrayList<>();
         finalResults.add(consolidatedResult);
 
-        // Add representative spoofs or unknowns if they were consistently present
+        // Add other unique registered users consistently seen (Label others)
+        Set<String> addedUserIds = new HashSet<>();
+        addedUserIds.add(winningUserId);
+
         allDetections.stream()
-                .filter(d -> Boolean.TRUE.equals(d.getIsSpoofed()) || d.getUser() == null)
+                .filter(d -> d.getUser() != null && !addedUserIds.contains(d.getUser().getId()))
+                .filter(d -> d.getConfidence() >= 0.75)
+                .forEach(d -> {
+                    if (addedUserIds.add(d.getUser().getId())) {
+                        d.setAuthorized(false);
+                        d.setAnalysisMessage("👤 ALSO PRESENT: " + d.getUser().getName());
+                        finalResults.add(d);
+                    }
+                });
+
+        // Add representative spoofs
+        allDetections.stream()
+                .filter(d -> Boolean.TRUE.equals(d.getIsSpoofed()))
                 .findFirst()
-                .ifPresent(finalResults::add);
+                .ifPresent(d -> {
+                    d.setAuthorized(false);
+                    d.setAnalysisMessage("🚨 SPOOF REJECTED: Static/Phone screen artifact.");
+                    finalResults.add(d);
+                });
+
+        // Add unknown faces
+        allDetections.stream()
+                .filter(d -> d.getUser() == null && !Boolean.TRUE.equals(d.getIsSpoofed()))
+                .findFirst()
+                .ifPresent(d -> {
+                    d.setAnalysisMessage("👤 UNKNOWN: Unregistered face.");
+                    finalResults.add(d);
+                });
 
         log.info("Multi-frame verification successful - User: {}, Votes: {}/{}, Avg Confidence: {}, Motion: {}",
                 winningUserId, winningVote.voteCount, successfulFrames,
