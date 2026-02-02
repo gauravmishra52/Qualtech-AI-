@@ -32,10 +32,10 @@ public class MultiFrameVerificationService {
     private final ExecutorService executorService = Executors.newCachedThreadPool();
 
     public FaceVerificationResponse verifyWithMultipleFrames(
-            List<MultipartFile> frames, 
+            List<MultipartFile> frames,
             FaceVerificationRequest baseRequest,
             FaceRecognitionService faceRecognitionService) throws IOException {
-        
+
         if (frames == null || frames.isEmpty()) {
             return FaceVerificationResponse.failure("No frames provided for multi-frame verification");
         }
@@ -48,11 +48,11 @@ public class MultiFrameVerificationService {
         log.info("Starting multi-frame verification with {} frames", frames.size());
 
         List<CompletableFuture<FaceVerificationResponse>> futures = new ArrayList<>();
-        
+
         for (int i = 0; i < frames.size(); i++) {
             final int frameIndex = i;
             final MultipartFile frame = frames.get(i);
-            
+
             CompletableFuture<FaceVerificationResponse> future = CompletableFuture.supplyAsync(() -> {
                 try {
                     FaceVerificationRequest frameRequest = createFrameRequest(baseRequest, frame, frameIndex);
@@ -62,7 +62,7 @@ public class MultiFrameVerificationService {
                     return FaceVerificationResponse.failure("Frame processing failed: " + e.getMessage());
                 }
             }, executorService);
-            
+
             futures.add(future);
         }
 
@@ -80,7 +80,8 @@ public class MultiFrameVerificationService {
         return consolidateMultiFrameResults(responses);
     }
 
-    private FaceVerificationRequest createFrameRequest(FaceVerificationRequest baseRequest, MultipartFile frame, int frameIndex) {
+    private FaceVerificationRequest createFrameRequest(FaceVerificationRequest baseRequest, MultipartFile frame,
+            int frameIndex) {
         FaceVerificationRequest frameRequest = new FaceVerificationRequest();
         frameRequest.setImage(frame);
         frameRequest.setProvider(baseRequest.getProvider());
@@ -99,13 +100,13 @@ public class MultiFrameVerificationService {
 
         for (int i = 0; i < responses.size(); i++) {
             FaceVerificationResponse response = responses.get(i);
-            
+
             if (response.isSuccess() && response.getDetections() != null) {
                 successfulFrames++;
-                
+
                 for (FaceDetectionResult detection : response.getDetections()) {
                     allDetections.add(detection);
-                    
+
                     if (detection.isAuthorized() && detection.getUser() != null) {
                         String userId = detection.getUser().getId();
                         voteMap.compute(userId, (k, existing) -> {
@@ -124,7 +125,9 @@ public class MultiFrameVerificationService {
 
         if (voteMap.isEmpty()) {
             log.warn("No authorized faces detected in any frame");
-            return FaceVerificationResponse.failure("No authorized faces detected in multi-frame analysis");
+            // Return success but with current detections so UI can show why it failed
+            // (unknowns/spoofs)
+            return FaceVerificationResponse.success(allDetections.stream().limit(5).toList());
         }
 
         String winningUserId = determineWinningUser(voteMap, successfulFrames);
@@ -142,17 +145,96 @@ public class MultiFrameVerificationService {
             return FaceVerificationResponse.failure("Unable to determine winning user");
         }
 
+        // MOTION & BLINK DETECTION: Check if the WINNING face is live
+        List<FaceDetectionResult> winningUserDetections = allDetections.stream()
+                .filter(d -> d.getUser() != null && d.getUser().getId().equals(winningUserId))
+                .toList();
+
+        double livenessMotionScore = calculateMotionScore(winningUserDetections);
+        boolean isLive = livenessMotionScore > 1.0; // Adjusted threshold for micro-movements + blink
+
         FaceDetectionResult consolidatedResult = createConsolidatedResult(
-                winningUser.get(), 
-                winningVote, 
-                successfulFrames, 
-                responses.size()
-        );
+                winningUser.get(),
+                winningVote,
+                successfulFrames,
+                responses.size(),
+                isLive);
 
-        log.info("Multi-frame verification successful - User: {}, Votes: {}/{}, Avg Confidence: {:.3f}", 
-                winningUserId, winningVote.voteCount, successfulFrames, winningVote.totalConfidence / winningVote.voteCount);
+        // Build a list of other notable detections (e.g. spoofs or other people)
+        List<FaceDetectionResult> finalResults = new ArrayList<>();
+        finalResults.add(consolidatedResult);
 
-        return FaceVerificationResponse.success(Collections.singletonList(consolidatedResult));
+        // Add representative spoofs or unknowns if they were consistently present
+        allDetections.stream()
+                .filter(d -> Boolean.TRUE.equals(d.getIsSpoofed()) || d.getUser() == null)
+                .findFirst()
+                .ifPresent(finalResults::add);
+
+        log.info("Multi-frame verification successful - User: {}, Votes: {}/{}, Avg Confidence: {}, Motion: {}",
+                winningUserId, winningVote.voteCount, successfulFrames,
+                winningVote.totalConfidence / winningVote.voteCount, isLive);
+
+        return FaceVerificationResponse.success(finalResults);
+    }
+
+    private double calculateMotionScore(List<FaceDetectionResult> detections) {
+        if (detections.size() < 2)
+            return 0.0;
+
+        // 1. Position Variance (X, Y)
+        double meanX = detections.stream().mapToDouble(FaceDetectionResult::getX).average().orElse(0);
+        double meanY = detections.stream().mapToDouble(FaceDetectionResult::getY).average().orElse(0);
+        double varX = detections.stream().mapToDouble(d -> Math.pow(d.getX() - meanX, 2)).average().orElse(0);
+        double varY = detections.stream().mapToDouble(d -> Math.pow(d.getY() - meanY, 2)).average().orElse(0);
+        double positionMotion = Math.sqrt(varX + varY);
+
+        // 2. Pose Variance (Pitch, Roll, Yaw) - Harder to spoof than position
+        double varPitch = calculateVariance(
+                detections.stream().map(FaceDetectionResult::getPitch).filter(Objects::nonNull).toList());
+        double varRoll = calculateVariance(
+                detections.stream().map(FaceDetectionResult::getRoll).filter(Objects::nonNull).toList());
+        double varYaw = calculateVariance(
+                detections.stream().map(FaceDetectionResult::getYaw).filter(Objects::nonNull).toList());
+        double poseMotion = Math.sqrt(varPitch + varYaw + varRoll);
+
+        // 3. Blink Detection
+        boolean blinkDetected = detectBlink(detections);
+
+        log.info("Liveness Multi-Frame Analysis: PosMotion={}, PoseMotion={}, BlinkDetected={}",
+                positionMotion, poseMotion, blinkDetected);
+
+        // Return a combined score
+        double score = (positionMotion * 2.0) + (poseMotion * 5.0);
+        if (blinkDetected)
+            score += 50.0;
+
+        return score;
+    }
+
+    private boolean detectBlink(List<FaceDetectionResult> detections) {
+        if (detections.size() < 2)
+            return false;
+
+        boolean seenOpen = false;
+        boolean seenClosed = false;
+
+        for (FaceDetectionResult d : detections) {
+            if (d.getEyesOpen() != null) {
+                if (d.getEyesOpen())
+                    seenOpen = true;
+                else
+                    seenClosed = true;
+            }
+        }
+
+        return seenOpen && seenClosed;
+    }
+
+    private double calculateVariance(List<Double> values) {
+        if (values == null || values.size() < 2)
+            return 0.0;
+        double mean = values.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+        return values.stream().mapToDouble(v -> Math.pow(v - mean, 2)).average().orElse(0);
     }
 
     private String determineWinningUser(Map<String, FrameVote> voteMap, int successfulFrames) {
@@ -163,25 +245,28 @@ public class MultiFrameVerificationService {
                 .orElse(null);
     }
 
-    private FaceDetectionResult createConsolidatedResult(FaceUser user, FrameVote vote, int successfulFrames, int totalFrames) {
+    private FaceDetectionResult createConsolidatedResult(FaceUser user, FrameVote vote, int successfulFrames,
+            int totalFrames, boolean isLive) {
         return FaceDetectionResult.builder()
                 .x(0)
                 .y(0)
                 .width(0)
                 .height(0)
-                .authorized(true)
+                .authorized(isLive) // SECURITY: Only authorized if liveness passed
                 .user(user)
                 .confidence(vote.averageConfidence())
-                .isLive(true)
-                .livenessScore(100.0)
+                .isLive(isLive)
+                .livenessScore(isLive ? 100.0 : 40.0)
                 .emotion("Multi-frame verified")
                 .age("N/A")
-                .moving(false)
+                .moving(isLive)
                 .qualityScore((double) vote.voteCount / totalFrames)
-                .spoofProbability(0.0)
-                .isSpoofed(false)
+                .spoofProbability(isLive ? 0.0 : 0.8)
+                .isSpoofed(!isLive)
                 .confidenceLevel("HIGH")
-                .analysisMessage(String.format("Multi-frame verification: %d/%d frames matched", vote.voteCount, totalFrames))
+                .analysisMessage(
+                        String.format("Multi-frame verification: %d/%d frames matched. Liveness: %s",
+                                vote.voteCount, totalFrames, isLive ? "PASSED" : "FAILED (No Motion/Blink)"))
                 .build();
     }
 

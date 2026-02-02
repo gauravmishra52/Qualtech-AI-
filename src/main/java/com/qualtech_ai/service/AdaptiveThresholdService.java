@@ -27,23 +27,24 @@ public class AdaptiveThresholdService {
     public double calculateAdaptiveThreshold(Mat image, String userId) {
         double brightness = calculateImageBrightness(image);
         double adaptiveThreshold = getThresholdForLighting(brightness);
-        
+
         adaptiveThreshold = adjustBasedOnUserHistory(userId, adaptiveThreshold);
-        
-        log.debug("Adaptive threshold calculation - User: {}, Brightness: {:.2f}, Threshold: {:.3f}", 
-                 userId, brightness, adaptiveThreshold);
-        
+
+        log.debug("Adaptive threshold calculation - User: {}, Brightness: {}, Threshold: {}",
+                userId, brightness, adaptiveThreshold);
+
         return adaptiveThreshold;
     }
 
     private double calculateImageBrightness(Mat image) {
         try {
             Mat gray = new Mat();
-            org.bytedeco.opencv.global.opencv_imgproc.cvtColor(image, gray, org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGR2GRAY);
-            
+            org.bytedeco.opencv.global.opencv_imgproc.cvtColor(image, gray,
+                    org.bytedeco.opencv.global.opencv_imgproc.COLOR_BGR2GRAY);
+
             org.bytedeco.opencv.opencv_core.Scalar meanScalar = org.bytedeco.opencv.global.opencv_core.mean(gray);
             double brightness = meanScalar.get(0);
-            
+
             gray.release();
             return brightness;
         } catch (Exception e) {
@@ -65,7 +66,7 @@ public class AdaptiveThresholdService {
     private double adjustBasedOnUserHistory(String userId, double baseThreshold) {
         AtomicInteger attemptCount = userAttemptCounts.get(userId);
         Double avgConfidence = userAverageConfidence.get(userId);
-        
+
         if (attemptCount != null && avgConfidence != null && attemptCount.get() > 3) {
             if (avgConfidence > 0.9) {
                 return Math.max(baseThreshold - 0.05, 0.5);
@@ -73,13 +74,13 @@ public class AdaptiveThresholdService {
                 return Math.min(baseThreshold + 0.05, 0.95);
             }
         }
-        
+
         return baseThreshold;
     }
 
     public void recordVerificationAttempt(String userId, double confidence, boolean successful) {
         userAttemptCounts.computeIfAbsent(userId, k -> new AtomicInteger(0)).incrementAndGet();
-        
+
         userAverageConfidence.compute(userId, (k, currentAvg) -> {
             if (currentAvg == null) {
                 return confidence;
@@ -87,9 +88,9 @@ public class AdaptiveThresholdService {
                 return (currentAvg * 0.8) + (confidence * 0.2);
             }
         });
-        
-        log.debug("Recorded verification attempt - User: {}, Confidence: {:.3f}, Successful: {}", 
-                 userId, confidence, successful);
+
+        log.debug("Recorded verification attempt - User: {}, Confidence: {}, Successful: {}",
+                userId, confidence, successful);
     }
 
     public void resetUserHistory(String userId) {

@@ -37,11 +37,8 @@ import com.qualtech_ai.service.AwsFaceService;
 import com.qualtech_ai.service.AzureFaceService;
 import com.qualtech_ai.entity.FaceVerificationLog;
 import com.qualtech_ai.util.FaceImagePreprocessor;
-// AdaptiveThresholdService disabled for stabilization - using fixed threshold
-// import com.qualtech_ai.service.AdaptiveThresholdService;
-
-// SilentSelfImprovementService disabled for stabilization
-// import com.qualtech_ai.service.SilentSelfImprovementService;
+import com.qualtech_ai.service.MultiFrameVerificationService;
+import com.qualtech_ai.service.impl.FaceUserTxService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -57,6 +54,7 @@ import java.util.HashMap;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -64,6 +62,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.bytedeco.opencv.global.opencv_core.CV_32F;
 import static org.bytedeco.opencv.global.opencv_dnn.blobFromImage;
 import static org.bytedeco.opencv.global.opencv_imgcodecs.IMREAD_COLOR;
+import org.bytedeco.opencv.opencv_core.MatVector;
 
 @Slf4j
 @Service
@@ -73,7 +72,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
     private static final double FACE_DETECTION_CONFIDENCE = 0.45; // Refined for faster detection
     private static final int MAX_FACES_TO_PROCESS = 3; // Limit for real-time performance
-    private static final double AUTH_SCORE_THRESHOLD = 0.7; // Weighted score threshold for authorization
+    private static final double AUTH_SCORE_THRESHOLD = 0.65; // Updated to 0.65 as per new scoring system
 
     // DNN model paths - Using Caffe models
     private static final String FACE_DETECTOR_MODEL_RES = "classpath:face_models/deploy.prototxt";
@@ -86,8 +85,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
     // Performance optimization constants
     private static final int FACE_SIZE_THRESHOLD = 40; // Minimum face size for detection
-    private static final double LIVENESS_THRESHOLD = 50.0; // Increased even further for maximum security against
-                                                           // spoofing
+    private static final double LIVENESS_THRESHOLD = 75.0; // Increased to 75.0 for maximum security against spoofing
 
     private final FaceUserRepository faceUserRepository;
     private final S3Service s3Service;
@@ -97,6 +95,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     private final FaceVerificationLogRepository faceVerificationLogRepository;
     private final FaceImagePreprocessor faceImagePreprocessor;
     private final FaceUserTxService faceUserTxService;
+    private final MultiFrameVerificationService multiFrameVerificationService;
     // AdaptiveThresholdService disabled for stabilization - using fixed threshold
     // private final AdaptiveThresholdService adaptiveThresholdService;
     @Value("${face.recognition.threshold:0.85}")
@@ -104,10 +103,14 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
     // SilentSelfImprovementService disabled for stabilization
     // private final SilentSelfImprovementService silentSelfImprovementService;
-    private final ObjectMapper objectMapper = new ObjectMapper(); // Fix for missing field
+    private ObjectMapper objectMapper = new ObjectMapper(); // Non-final since it's directly initialized
 
-    private final AtomicInteger activeRequests = new AtomicInteger(0);
+    private AtomicInteger activeRequests = new AtomicInteger(0);
     private static final int MAX_CONCURRENT_REQUESTS = 4;
+
+    // Frame buffer for motion detection in stream mode
+    private ConcurrentHashMap<String, List<byte[]>> streamFrameBuffers = new ConcurrentHashMap<String, List<byte[]>>();
+    private static final int STREAM_BUFFER_SIZE = 3; // Number of frames to collect before multi-frame check
 
     // DNN-based face detector - Pre-initialized for performance
     private Net faceDetector;
@@ -207,6 +210,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public FaceVerificationResponse verifyFace(FaceVerificationRequest request) throws IOException {
         // MANDATORY VALIDATIONS for face verification (Service Level)
 
@@ -310,7 +314,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
             // 4. Match confidence ≥ threshold validation
             if (awsConfidence < 80.0) {
-                log.warn("⚠️  AUTHORIZATION DENIED: Low confidence {:.2f}%", awsConfidence);
+                log.warn("⚠️  AUTHORIZATION DENIED: Low confidence {}%", awsConfidence);
                 return FaceVerificationResponse
                         .failure(String.format("Low confidence: %.2f%% (minimum 80%% required)", awsConfidence));
             }
@@ -367,7 +371,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             // analysisMsg += " + Azure confirmed presence";
             // }
 
-            log.info("⚖️  FINAL DECISION: {} (AWS Confidence: {:.2f}%)", authorized ? "AUTHORIZED" : "NOT AUTHORIZED",
+            log.info("⚖️  FINAL DECISION: {} (AWS Confidence: {}%)", authorized ? "AUTHORIZED" : "NOT AUTHORIZED",
                     awsConfidence);
 
             // Log Verification
@@ -1024,29 +1028,31 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             // Penalty: Blue Light (Screen indication)
             if (rToB <= 1.2) { // Increased threshold - screens are significantly bluer
                 finalScore -= 50.0; // increased penalty
-                log.debug("Liveness Penalty: Blue light detected (R/B ratio: {:.2f})", rToB);
+                log.debug("Liveness Penalty: Blue light detected (R/B ratio: {})", rToB);
             }
 
             // Penalty: Reflections (Screen/Glass)
             if (reflectionRatio > 0.04) { // Stricter threshold
                 finalScore -= 100.0; // Immediate fail
-                log.debug("Liveness Penalty: High reflection detected ({:.1f}%)", reflectionRatio * 100);
+                log.debug("Liveness Penalty: High reflection detected ({}%)", reflectionRatio * 100);
             } else if (reflectionRatio > 0.005) { // Very sensitive to minor glare
                 finalScore -= 30.0;
             }
 
-            // Penalty: Too Smooth (Blurry Photo) or Too Grainy (Noise)
+            // Penalty: Too Smooth (Blurry Photo) or Too Grainy (Moiré pattern/Screen noise)
             if (variance < 50) {
-                finalScore -= 40.0; // Too blurry/smooth
-            } else if (variance > 2000) {
-                finalScore -= 20.0; // Too noisy/grainy
+                finalScore -= 60.0; // Increased penalty for blur
+                log.debug("Liveness Penalty: Image too smooth/blurry (Var: {})", variance);
+            } else if (variance > 1500) {
+                finalScore -= 80.0; // High frequency noise often indicates screen Moiré or print patterns
+                log.debug("Liveness Penalty: High frequency noise detected (Var: {}) - possible Moiré/Spoof", variance);
             }
 
             // Clamp 0-100
             finalScore = Math.max(0, Math.min(100, finalScore));
 
-            log.info("Liveness Check: Score={:.1f} (Tex={:.1f}, Var={:.0f}, Reflect={:.1f}%, R/B={:.2f})",
-                    finalScore, textureScore, variance, reflectionRatio * 100, rToB);
+            log.info("Liveness Check: Score={} (Var={}, Reflect={}%, R/B={})",
+                    finalScore, variance, reflectionRatio * 100, rToB);
 
             return finalScore;
 
@@ -1247,52 +1253,33 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                         faceRoiForLiveness.release();
                 }
 
-                // C. Authorization Decision (Unified Weighted Score)
+                // C. Authorization Decision (Industry Secure Flow)
                 if (matchedUser != null) {
-                    // Adaptive threshold disabled for stabilization - using fixed threshold
-                    // double adaptiveThreshold =
-                    // adaptiveThresholdService.calculateAdaptiveThreshold(
-                    // preprocessedImage, userId);
-
-                    // 1. Identity Score (60% weight)
-                    // Ensure confidence is 0.0-1.0
-                    double identityScore = confidence * 0.6;
-
-                    // 2. Liveness Score (30% weight)
-                    double livenessComponent = isLive ? 0.3 : 0.0;
-
-                    // 3. Quality Score (10% weight)
-                    double qualityComponent = qualityScore * 0.1;
-
-                    // Calculate Base Score
-                    double totalScore = identityScore + livenessComponent + qualityComponent;
-
-                    // Final Decision Logic
-                    // SECURITY CRITICAL: Strict Liveness Gates
+                    // STEP 1: Liveness Gate (Hard Gate)
                     if (isSpoofed) {
                         authorized = false;
                         log.warn("SECURITY ALERT: AWS Spoof detection triggered for user {}. Access Denied.", userId);
                     } else if (!isLive) {
                         authorized = false;
-                        log.warn("SECURITY ALERT: Local Liveness check failed for user {}. Access Denied.", userId);
+                        log.warn("Liveness FAILED (Score: {}) - blocking authentication for user {}", livenessScore,
+                                userId);
                     } else {
-                        authorized = totalScore >= AUTH_SCORE_THRESHOLD;
+                        // STEP 2: Similarity Check
+                        // Similarity is 0.0 to 1.0. We want a base of 0.7 for strong match.
+                        double similarityScore = confidence;
+
+                        // STEP 3: Quality Bonus (Add up to 0.1 bonus for high quality)
+                        double qualityBonus = (qualityScore / 100.0) * 0.1;
+
+                        double finalAuthScore = similarityScore + qualityBonus;
+
+                        // Use the configured FACE_MATCH_THRESHOLD (0.55) as the gate for finalAuthScore
+                        authorized = finalAuthScore >= FACE_MATCH_THRESHOLD;
+
+                        log.info(
+                                "Auth Decision - User: {}, FinalScore: {} (Threshold: {}), [Similarity: {}, QualBonus: {}]",
+                                userId, finalAuthScore, FACE_MATCH_THRESHOLD, similarityScore, qualityBonus);
                     }
-
-                    log.info(
-                            "Auth Decision - User: {}, TotalScore: {:.3f} (Threshold: {}), Breakdown: [Id: {:.2f}, Live: {:.2f}, Qual: {:.2f}, SpoofPenalty: {}] -> Authorized: {}",
-                            userId, totalScore, AUTH_SCORE_THRESHOLD, identityScore, livenessComponent,
-                            qualityComponent, isSpoofed, authorized);
-
-                    // Adaptive threshold disabled for stabilization
-                    // adaptiveThresholdService.recordVerificationAttempt(userId, confidence,
-                    // authorized);
-
-                    // Silent self-improvement disabled for stabilization
-                    // if (authorized && confidence >
-                    // silentSelfImprovementService.getHighConfidenceThreshold()) {
-                    // // Skipping complex alignment here for now
-                    // }
                 }
 
                 // Build comprehensive detection result
@@ -1309,6 +1296,10 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                         .spoofProbability(spoofProbability)
                         .isSpoofed(isSpoofed)
                         .confidenceLevel(advancedFace.getConfidenceLevel())
+                        .eyesOpen(advancedFace.getEyesOpen())
+                        .pitch(advancedFace.getPitch())
+                        .roll(advancedFace.getRoll())
+                        .yaw(advancedFace.getYaw())
                         .analysisMessage(getAnalysisMessage(advancedFace, authorized, isLive))
                         .build();
 
@@ -1324,6 +1315,32 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                             emotion,
                             age,
                             isLive);
+                }
+            }
+
+            // 5. PER-FACE SECURITY AUDIT (Identity Trust Model)
+            // Authorize real person, flag spoofs, and label other faces
+            for (FaceDetectionResult res : results) {
+                // Local Liveness Fallback (Hard Fail if extremely low score)
+                if (res.getLivenessScore() < 20.0) {
+                    res.setAuthorized(false);
+                    res.setLive(false);
+                    res.setIsSpoofed(true);
+                    res.setAnalysisMessage("🚨 SPOOF DETECTED: Static/Phone screen artifact.");
+                }
+
+                // Consistency check with AWS Spoof Flags
+                if (Boolean.TRUE.equals(res.getIsSpoofed())
+                        && (res.getAnalysisMessage() == null || !res.getAnalysisMessage().contains("SPOOF"))) {
+                    res.setAnalysisMessage("🚨 SECURITY RISK: AWS detected spoofing attempt.");
+                }
+
+                if (!res.isAuthorized() && !Boolean.TRUE.equals(res.getIsSpoofed())) {
+                    if (res.getUser() == null) {
+                        res.setAnalysisMessage("👤 UNKNOWN: Unregistered face.");
+                    } else if (res.getConfidence() < FACE_MATCH_THRESHOLD) {
+                        res.setAnalysisMessage("⚠️ LOW CONFIDENCE: Similarity below threshold.");
+                    }
                 }
             }
 
@@ -1426,6 +1443,16 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 }
             }
 
+            // Post-processing: Singularity check for Azure
+            // Post-processing: Mark spoofs for Azure but don't reject the whole frame
+            for (FaceDetectionResult res : results) {
+                if (res.getLivenessScore() < 20.0) {
+                    res.setAuthorized(false);
+                    res.setIsSpoofed(true);
+                    res.setAnalysisMessage("🚨 SECURITY RISK: Spoof detected.");
+                }
+            }
+
             return FaceVerificationResponse.success(results);
         } catch (Exception e) {
             log.error("Azure Verification Failed: {}", e.getMessage());
@@ -1484,6 +1511,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public FaceVerificationResponse verifyFaceStream(FaceVerificationRequest request) throws IOException {
         // Single-flight lock
         if (activeRequests.incrementAndGet() > MAX_CONCURRENT_REQUESTS) {
@@ -1491,13 +1519,36 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             return FaceVerificationResponse.failure("Verification in progress");
         }
 
-        // Optimized stream mode - skip logging for performance
         Mat image = null;
         File tempFile = null;
 
         try {
-            // Read bytes once
+            // Multi-frame buffering logic to enable motion detection
+            String correlationId = request.getCorrelationId();
+            if (correlationId == null) {
+                correlationId = "anonymous-stream-" + Thread.currentThread().getName();
+            }
+
             byte[] imageBytes = request.getImage().getBytes();
+
+            // Add to thread-safe buffer
+            List<byte[]> buffer = streamFrameBuffers.computeIfAbsent(correlationId,
+                    k -> new java.util.concurrent.CopyOnWriteArrayList<>());
+            buffer.add(imageBytes);
+
+            // If we have enough frames, trigger multi-frame analysis (motion detection)
+            if (buffer.size() >= STREAM_BUFFER_SIZE) {
+                log.info("Buffer full for stream {}. Triggering multi-frame analysis...", correlationId);
+                List<MultipartFile> frames = convertToMultipartFiles(buffer, request.getImage().getOriginalFilename(),
+                        request.getImage().getContentType());
+
+                // Critical: Remove buffer before processing to avoid re-entry issues
+                streamFrameBuffers.remove(correlationId);
+
+                return multiFrameVerificationService.verifyWithMultipleFrames(frames, request, this);
+            }
+
+            // Optimized stream mode - skip logging for performance
 
             // Create temp file
             String originalName = request.getImage().getOriginalFilename();
@@ -1540,11 +1591,7 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 return FaceVerificationResponse.failure("No faces detected");
             }
 
-            // Limit to largest face for stream performance
-            if (faceRects.size() > 1) {
-                faceRects = faceRects.subList(0, 1);
-            }
-
+            // Identity Trust Model: Evaluate all faces in the frame individually
             List<FaceDetectionResult> detections = new ArrayList<>();
             List<FaceUser> allUsers = faceUserRepository.findAll();
 
@@ -1559,12 +1606,13 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                     float[] features = extractFeatureVector(resizedFace);
                     String embedding = featuresToString(features);
 
-                    // Fast liveness and emotion
+                    // 1. Local Liveness & Spoof Check
                     double livenessScore = calculateLivenessFast(resizedFace);
                     boolean isLive = livenessScore > LIVENESS_THRESHOLD;
+                    boolean isSpoofed = livenessScore < 20.0;
                     String emotion = detectEmotionFast(resizedFace);
 
-                    // Quick identity match
+                    // 2. Identity Search
                     double maxSimilarity = -1;
                     FaceUser matchedUser = null;
 
@@ -1576,7 +1624,17 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                         }
                     }
 
-                    boolean authorized = maxSimilarity >= FACE_MATCH_THRESHOLD && isLive;
+                    // 3. Per-Face Authorization
+                    // authorized only if live, matching, and not spoofed
+                    boolean authorized = isLive && !isSpoofed && maxSimilarity >= FACE_MATCH_THRESHOLD;
+
+                    String analysisMsg = null;
+                    if (isSpoofed)
+                        analysisMsg = "🚨 SPOOF DETECTED";
+                    else if (!isLive)
+                        analysisMsg = "❌ NOT LIVE";
+                    else if (!authorized && matchedUser == null)
+                        analysisMsg = "👤 UNKNOWN";
 
                     detections.add(FaceDetectionResult.builder()
                             .x(rect.x())
@@ -1584,13 +1642,14 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                             .width(rect.width())
                             .height(rect.height())
                             .authorized(authorized)
-                            .user(authorized ? matchedUser : null)
+                            .user(matchedUser)
                             .confidence(maxSimilarity)
-                            .isLive(isLive)
+                            .isLive(isLive && !isSpoofed)
                             .livenessScore(livenessScore)
+                            .isSpoofed(isSpoofed)
                             .emotion(emotion)
                             .age("N/A")
-                            .moving(false)
+                            .analysisMessage(analysisMsg)
                             .build());
 
                 } finally {
@@ -1777,5 +1836,55 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 log.warn("AWS duplicate check skipped due to error: {}", e.getMessage());
             }
         }
+    }
+
+    private List<MultipartFile> convertToMultipartFiles(List<byte[]> buffers, String originalName, String contentType) {
+        List<MultipartFile> files = new ArrayList<>();
+        for (int i = 0; i < buffers.size(); i++) {
+            final byte[] content = buffers.get(i);
+            final String name = "frame_" + i;
+            files.add(new MultipartFile() {
+                @Override
+                public String getName() {
+                    return name;
+                }
+
+                @Override
+                public String getOriginalFilename() {
+                    return originalName;
+                }
+
+                @Override
+                public String getContentType() {
+                    return contentType;
+                }
+
+                @Override
+                public boolean isEmpty() {
+                    return content.length == 0;
+                }
+
+                @Override
+                public long getSize() {
+                    return content.length;
+                }
+
+                @Override
+                public byte[] getBytes() throws IOException {
+                    return content;
+                }
+
+                @Override
+                public java.io.InputStream getInputStream() throws IOException {
+                    return new java.io.ByteArrayInputStream(content);
+                }
+
+                @Override
+                public void transferTo(File dest) throws IOException, IllegalStateException {
+                    Files.write(dest.toPath(), content);
+                }
+            });
+        }
+        return files;
     }
 }

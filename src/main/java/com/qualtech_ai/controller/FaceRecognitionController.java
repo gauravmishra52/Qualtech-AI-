@@ -69,13 +69,15 @@ public class FaceRecognitionController {
     public ResponseEntity<FaceVerificationResponse> verifyFace(
             @RequestParam("image") MultipartFile image,
             @RequestParam(value = "provider", required = false, defaultValue = "LOCAL") com.qualtech_ai.enums.FaceProvider provider,
-            @RequestParam(value = "live", required = false, defaultValue = "false") boolean live)
+            @RequestParam(value = "live", required = false, defaultValue = "false") boolean live,
+            @RequestParam(value = "correlationId", required = false) String correlationId)
             throws IOException {
 
         FaceVerificationRequest request = new FaceVerificationRequest();
         request.setImage(image);
         request.setProvider(provider);
         request.setLive(live);
+        request.setCorrelationId(correlationId);
 
         FaceVerificationResponse response = faceRecognitionService.verifyFace(request);
         if ("Verification in progress".equals(response.getMessage())) {
@@ -108,7 +110,8 @@ public class FaceRecognitionController {
     public ResponseEntity<FaceVerificationResponse> verifyFaceStream(
             @RequestParam("image") MultipartFile image,
             @RequestParam(value = "provider", required = false, defaultValue = "LOCAL") com.qualtech_ai.enums.FaceProvider provider,
-            @RequestParam(value = "live", required = false, defaultValue = "true") boolean live)
+            @RequestParam(value = "live", required = false, defaultValue = "true") boolean live,
+            @RequestParam(value = "correlationId", required = false) String correlationId)
             throws IOException {
 
         // Stream mode - optimized for real-time performance
@@ -116,6 +119,7 @@ public class FaceRecognitionController {
         request.setImage(image);
         request.setProvider(provider);
         request.setLive(live);
+        request.setCorrelationId(correlationId);
 
         FaceVerificationResponse response = faceRecognitionService.verifyFaceStream(request);
         if ("Verification in progress".equals(response.getMessage())) {

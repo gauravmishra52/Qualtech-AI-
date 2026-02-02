@@ -148,14 +148,14 @@ public class FaceImagePreprocessor {
     public boolean isLowLightCondition(Mat image) {
         double brightness = calculateBrightness(image);
         boolean isLowLight = brightness < BRIGHTNESS_THRESHOLD_LOW;
-        log.debug("Lighting condition check - Brightness: {:.2f}, Low light: {}", brightness, isLowLight);
+        log.debug("Lighting condition check - Brightness: {}, Low light: {}", brightness, isLowLight);
         return isLowLight;
     }
 
     public boolean isHighLightCondition(Mat image) {
         double brightness = calculateBrightness(image);
         boolean isHighLight = brightness > BRIGHTNESS_THRESHOLD_HIGH;
-        log.debug("Lighting condition check - Brightness: {:.2f}, High light/Overexposed: {}", brightness, isHighLight);
+        log.debug("Lighting condition check - Brightness: {}, High light/Overexposed: {}", brightness, isHighLight);
         return isHighLight;
     }
 

@@ -25,6 +25,12 @@ public class FaceDetectionResult {
     private String age;
     private String provider; // AWS, Azure, or Local
 
+    // Liveness specific fields
+    private Boolean eyesOpen;
+    private Double pitch;
+    private Double roll;
+    private Double yaw;
+
     // Enhanced fields for advanced analysis
     private Double qualityScore;
     private Double spoofProbability;

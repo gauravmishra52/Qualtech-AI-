@@ -52,7 +52,7 @@ public class SilentSelfImprovementService {
             updateFaceEmbeddingSilently(userId, newFaceEmbedding, confidence);
         }
 
-        log.debug("Recorded high confidence match - User: {}, Confidence: {:.3f}, Attempts: {}, Avg: {:.3f}",
+        log.debug("Recorded high confidence match - User: {}, Confidence: {}, Attempts: {}, Avg: {}",
                 userId, confidence, attempts, avgConfidence);
     }
 
@@ -66,7 +66,7 @@ public class SilentSelfImprovementService {
                 user.setFaceEmbedding(newFaceEmbedding);
                 faceUserRepository.save(user);
 
-                log.info("Silent self-improvement: Updated face embedding for user {} (confidence: {:.3f})",
+                log.info("Silent self-improvement: Updated face embedding for user {} (confidence: {})",
                         user.getEmail(), confidence);
 
                 // Reset counters after successful update

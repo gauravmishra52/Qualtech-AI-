@@ -70,7 +70,7 @@ public class AwsFaceService {
             // Log success with details
             if (response != null && !response.faceMatches().isEmpty()) {
                 var match = response.faceMatches().get(0);
-                log.info("✅ AWS MATCH! ExternalId: {}, FaceId: {}, Similarity: {:.2f}%",
+                log.info("✅ AWS MATCH! ExternalId: {}, FaceId: {}, Similarity: {}%",
                         match.face().externalImageId(), match.face().faceId(), match.similarity());
             } else if (response != null) {
                 log.warn("⚠️  AWS: No matches found in collection '{}'", collectionId);
