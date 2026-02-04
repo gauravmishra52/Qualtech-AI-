@@ -275,6 +275,11 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 log.error("Local preprocessing error: {}", e.getMessage());
             }
 
+            if (!localLivenessPassed) {
+                log.warn("Liveness check failed during local pre-validation (Score: {})", localLivenessScore);
+                return FaceVerificationResponse.failure("Liveness check failed (Local validation)");
+            }
+
             // 2. Delegate to the strongest available provider (GOLDEN RULE: No weak paths)
             int width = image.cols();
             int height = image.rows();
@@ -750,7 +755,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
             // faces
             // Previous formula (variance - 50) / 7.5 was too strict for real-time
             // mobile/web streams
-            double textureScore = Math.min(100, Math.max(0, (variance - 25) * 1.0));
 
             // 2. Reflection Detection (Glare from screens or glass frames)
             opencv_imgproc.cvtColor(face, hsv, opencv_imgproc.COLOR_BGR2HSV);
@@ -970,7 +974,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 double qualityScore = advancedFace.getQualityScore();
 
                 Mat faceCrop = null;
-                Mat faceRoiForLiveness = null;
 
                 try {
                     if (w > 10 && h > 10) {
@@ -1018,8 +1021,6 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
                 } finally {
                     if (faceCrop != null)
                         faceCrop.release();
-                    if (faceRoiForLiveness != null)
-                        faceRoiForLiveness.release();
                 }
 
                 // C. Authorization Decision (Industry Secure Flow)
@@ -1608,6 +1609,10 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
     private List<MultipartFile> convertToMultipartFiles(List<byte[]> buffers, String originalName, String contentType) {
         List<MultipartFile> files = new ArrayList<>();
+        // Ensure non-null values for null-safety
+        final String safeOriginalName = (originalName != null) ? originalName : "frame.jpg";
+        final String safeContentType = (contentType != null) ? contentType : "image/jpeg";
+
         for (int i = 0; i < buffers.size(); i++) {
             final byte[] content = buffers.get(i);
             final String name = "frame_" + i;
@@ -1619,12 +1624,12 @@ public class FaceRecognitionServiceImpl implements FaceRecognitionService {
 
                 @Override
                 public String getOriginalFilename() {
-                    return originalName;
+                    return safeOriginalName;
                 }
 
                 @Override
                 public String getContentType() {
-                    return contentType;
+                    return safeContentType;
                 }
 
                 @Override
